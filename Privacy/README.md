@@ -1,7 +1,8 @@
 # AddressPrivacy
 
-Hiding an account address on screen, shared by cl_quick and cl_audit (it will move to the shared repo n-uf/cl_kit as
-`Privacy/`, so it stays self-contained: it imports no other module of ours, Swift 5 language mode, macOS 13).
+Hiding an account address on screen, shared by cl_quick and cl_audit. Self-contained: it imports no other module of ours (not
+even ProfileCore), Swift 5 language mode, macOS 13. Built from cl_kit, vendored by cl_audit and cl_quick; it came from
+cl_quick's `Shared/AddressPrivacy/`.
 
 One rule: **a hidden address is never the real address under a blur, a mask or a first letter.** A Gaussian blur over the real
 text keeps its length and letter shapes (a screenshot gives them back by trying candidates); a mask like `y•••@example.com`
@@ -10,8 +11,9 @@ keeps the first letter, a length band and the domain. What is drawn instead is o
 `hidden address`: the same for every address, never made from one (no letter, no length, no hash, no domain). The real
 address appears only on an explicit reveal: the pointer on it, a "peek" the app asks for, or the app's setting turned off.
 
-Built by `scripts/modules.sh` as its own static library (`libAddressPrivacy.a`, module `AddressPrivacy`): Foundation, AppKit and
-SwiftUI only. `Checks/addressprivacy.sh` is its own suite (in CI); the apps' suites check how they use it.
+Built by `scripts/modules.sh` (`kit_build_privacy`) as its own static library (`libAddressPrivacy.a`, module
+`AddressPrivacy`): Foundation, AppKit, CoreImage, Combine and SwiftUI only. `Checks/run.sh addressprivacy` is its own suite (in
+CI); the apps' suites check how they use it.
 
 Files: `AddressText.swift` (Foundation only: the plain forms), `AddressSetting.swift` (an optional prefs-domain store),
 `AddressState.swift` (the setting as an observable value, the hover gate), `AddressInk.swift` (AppKit drawing),
@@ -149,9 +151,10 @@ change note).
 
 ## Adopting it in another app
 
-1. Add `Shared/AddressPrivacy/*.swift` to the build as a static library, as `scripts/modules.sh` does (`build_address_privacy`).
+1. Vendor a cl_kit tag and build `Privacy/*.swift` as a static library with the copy's `scripts/modules.sh`
+   (`kit_build_privacy OUT`, then link `kit_privacy_link OUT`).
 2. `import AddressPrivacy`, and hand it your stored setting (`apply(blur:)`, or an `AddressDefaultsStore`).
 3. Replace every place that shows an address: views by `BlurredAddress`; sentences, tooltips, alerts, pop-up rows, titles by
    `AddressText.sentence`; compact rows by `AddressText.short`; text that can't blur by `drawn`. Never `Text(address).blur(…)`,
    never a first-letter-plus-dots mask, never an `NSAttributedString` of the real address with a shadow.
-4. Run `Checks/addressprivacy.sh` (or build its `main.swift` against your copy) in CI.
+4. Run the copy's `Checks/run.sh addressprivacy` in CI.

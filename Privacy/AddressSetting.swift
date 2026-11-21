@@ -1,6 +1,6 @@
 // AddressDefaultsStore: an OPTIONAL convenience for an app (or several of its processes) that keeps its "Blur addresses"
-// setting in a prefs domain and announces changes with a distributed notification, as cl_audit does (its Settings app, icon
-// apps and menu bar agent all read one domain and reload on one note). The module never picks a domain or a key itself: the
+// setting in a prefs domain and announces changes with a distributed notification (an app whose several processes all read
+// one domain and reload on one note). The module never picks a domain or a key itself: the
 // app names them, so two apps never share a setting. An app that stores the setting some other way ignores this file and
 // calls `AddressPrivacy.shared.apply(blur:)`.
 
@@ -21,12 +21,12 @@ extension UserDefaults: AddressPrefs {
 
 /// The setting in a prefs domain.
 ///   - `suite`: the domain (nil: the app's own standard defaults), or pass `prefs` yourself.
-///   - `key`: the key; `valueMeansShown` says which way it reads (cl_audit's `showEmails`: true = shown, so addresses are
+///   - `key`: the key; `valueMeansShown` says which way it reads (a key like `showEmails`: true = shown, so addresses are
 ///     blurred when it is false or missing; a key of the other sense, "blur", leaves it false).
-///   - `legacyKey`: an older key of the other sense (cl_audit's `blurEmails`, true = blurred): read when `key` is missing, and
+///   - `legacyKey`: an older key of the other sense (like `blurEmails`, true = blurred): read when `key` is missing, and
 ///     removed on the next write.
-///   - `changeNote`: the distributed notification the setting's writers post and its readers reload on (cl_audit's
-///     `local.usage-n-uf.privacy-changed`). Writing through this store posts it.
+///   - `changeNote`: the distributed notification the setting's writers post and its readers reload on (the app names it).
+///     Writing through this store posts it.
 /// A missing setting means the blur is ON.
 public final class AddressDefaultsStore: AddressBlurStore {
     private let prefs: AddressPrefs

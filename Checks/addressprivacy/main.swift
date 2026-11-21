@@ -1,6 +1,6 @@
-// The AddressPrivacy module's own checks (Checks/addressprivacy.sh): only the module (Shared/AddressPrivacy/), no app code,
-// no window shown, no mouse, no Keychain, nothing written outside build/ (the prefs checks use a dictionary, never a real
-// domain). Sample addresses (example.com) only.
+// The AddressPrivacy module's own checks (Checks/run.sh addressprivacy): only the module (Privacy/), no app code, no window
+// shown, no mouse, no Keychain, nothing written outside Checks/.work (the prefs checks use a dictionary, never a real
+// domain). Sample addresses only (example.com and the like, reserved names).
 //
 // What they prove, for every way an app can show an address: with the blur on, what is drawn, put in a sentence or spoken
 // is the fixed stand-in or "hidden address" and never any part of the real address (asserted on the string each piece
@@ -18,7 +18,7 @@ func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "")
 }
 func spin(_ s: TimeInterval = 0.2) { RunLoop.current.run(until: Date().addingTimeInterval(s)) }
 
-let samples = ["zed.sample@example.com", "kim@example.org", "q@e.co", "alexandra.long.name@sample-domain.example.net", "ultra-1@example.com"]
+let samples = ["zed.sample@example.com", "kim@example.org", "q@e.test", "alexandra.long.name@sample-domain.example.net", "ultra-1@example.com"]
 let one = samples[0], two = samples[1], long = samples[3]
 let uuid = "1A2B3C4D-5E6F-4A8B-9C0D-1E2F3A4B5C6D"
 
@@ -42,7 +42,7 @@ check("drawn: the stand-in for every address with the blur on, nothing revealed"
       Set(samples.map { AddressText.drawn(address: $0, revealed: false, blur: true) }) == [AddressText.standIn])
 check("drawn: never any part of any sample address", samples.allSatisfy { !leaks(AddressText.drawn(address: $0, blur: true), of: $0) })
 check("drawn: the same length for a 6- and a 45-letter address (no length in it)",
-      AddressText.drawn(address: "q@e.co", blur: true).count == AddressText.drawn(address: long, blur: true).count)
+      AddressText.drawn(address: "q@e.test", blur: true).count == AddressText.drawn(address: long, blur: true).count)
 check("drawn: revealed it is the address; with the blur off too", samples.allSatisfy {
     AddressText.drawn(address: $0, revealed: true, blur: true) == $0 && AddressText.drawn(address: $0, blur: false) == $0 })
 check("drawn: the default is no reveal", AddressText.drawn(address: one, blur: true) == AddressText.standIn)
@@ -108,7 +108,7 @@ do {
     shared.apply(blur: true)
 }
 
-// a prefs domain the app names (cl_audit's: showEmails in local.usage-n-uf, the older inverted blurEmails, one change note)
+// a prefs domain the app names (here: a key of the shown sense, an older inverted one, one change note)
 do {
     final class Prefs: AddressPrefs {
         var d: [String: Bool] = [:]
@@ -247,7 +247,7 @@ if #available(macOS 14, *) {
               rendered(BlurredAddress(address: one, blur: false))?.tiffRepresentation == rendered(BlurredAddress(address: one, revealed: true, blur: false))?.tiffRepresentation
               && rendered(BlurredAddress(address: one, blur: false))?.tiffRepresentation != a?.tiffRepresentation)
         check("view pixels: the same short and very long address look alike hidden",
-              rendered(BlurredAddress(address: "q@e.co", blur: true))?.tiffRepresentation == rendered(BlurredAddress(address: long, blur: true))?.tiffRepresentation)
+              rendered(BlurredAddress(address: "q@e.test", blur: true))?.tiffRepresentation == rendered(BlurredAddress(address: long, blur: true))?.tiffRepresentation)
 
         // layout: an address longer than the stand-in, in a real container, leaves a neighbour where a short one does
         func width<V: View>(_ v: V) -> CGFloat {
@@ -261,11 +261,11 @@ if #available(macOS 14, *) {
                 Image(systemName: "chevron.down")
             }
         }
-        let shortHidden = width(row("q@e.co", revealed: false)), longHidden = width(row(long, revealed: false)), usualHidden = width(row(one, revealed: false))
+        let shortHidden = width(row("q@e.test", revealed: false)), longHidden = width(row(long, revealed: false)), usualHidden = width(row(one, revealed: false))
         check("layout: hidden, a short, a usual and a very long address leave the neighbour (the chevron) at the same place: the room is the stand-in's alone",
               shortHidden == longHidden && longHidden == usualHidden && shortHidden > 0, "\(shortHidden) \(usualHidden) \(longHidden)")
         check("layout: …revealed too: the long address is truncated to the room, the short one leaves room; nothing moves",
-              width(row(long, revealed: true)) == longHidden && width(row("q@e.co", revealed: true)) == shortHidden && width(row(one, revealed: true)) == usualHidden)
+              width(row(long, revealed: true)) == longHidden && width(row("q@e.test", revealed: true)) == shortHidden && width(row(one, revealed: true)) == usualHidden)
         let flowing = width(row(long, revealed: false, reserve: false))
         check("layout: inline in flowing text (no reserve) the hidden address is the stand-in's width too", flowing == width(row(one, revealed: false, reserve: false)) && flowing > 0)
         let two1 = NSHostingView(rootView: row(long, revealed: false).frame(width: 600, alignment: .leading))
@@ -346,13 +346,13 @@ func inkImage(_ address: String, readable: Bool, blur: Bool = true, width: CGFlo
 let restA = inkImage(one, readable: false), restB = inkImage(two, readable: false)
 check("ink: hidden, two different addresses draw exactly alike (the stand-in blurred)", restA.tiffRepresentation != nil && restA.tiffRepresentation == restB.tiffRepresentation)
 check("ink: …and the hidden picture is not blank (the stand-in really draws)", lit(restA) > 100, "\(lit(restA))")
-check("ink: …the same for a short and a very long address", inkImage("q@e.co", readable: false).tiffRepresentation == inkImage(long, readable: false).tiffRepresentation)
+check("ink: …the same for a short and a very long address", inkImage("q@e.test", readable: false).tiffRepresentation == inkImage(long, readable: false).tiffRepresentation)
 check("ink: readable it draws the address (different for two addresses, and from the stand-in)",
       inkImage(one, readable: true).tiffRepresentation != restA.tiffRepresentation && inkImage(one, readable: true).tiffRepresentation != inkImage(two, readable: true).tiffRepresentation)
 let ink = AddressInk(font: font)
 check("ink: the room is the stand-in's, whatever the address, while hidden; the address's own with the blur off",
-      ink.room(for: one, blur: true) == ink.room && ink.room(for: long, blur: true) == ink.room && ink.room(for: "q@e.co", blur: true) == ink.room
-      && ink.room(for: long, blur: false) > ink.room && ink.room(for: "q@e.co", blur: false) < ink.room)
+      ink.room(for: one, blur: true) == ink.room && ink.room(for: long, blur: true) == ink.room && ink.room(for: "q@e.test", blur: true) == ink.room
+      && ink.room(for: long, blur: false) > ink.room && ink.room(for: "q@e.test", blur: false) < ink.room)
 // a readable address longer than the room is cut to it: no ink beyond the room's right edge
 func inkPast(_ image: NSImage, from x: CGFloat) -> Bool {
     guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return true }
