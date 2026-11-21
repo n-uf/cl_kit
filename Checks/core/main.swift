@@ -818,5 +818,83 @@ do {
     check(a.refusal == nil && !ReadingRules.clAudit.readsMessage(isError: true, model: "<synthetic>"), "cl_audit's rules: no refusal kept, no message text read")
 }
 
+// ============ 10. the status record, its codec, and a profile's small picture (StatusFace) ============
+do {
+    let ann = "ann@example.com", bob = "bob@example.com"
+    func record(state: String = "ok", five: Double? = 12, week: Double? = 40, age: TimeInterval = 60, fiveIn: TimeInterval = 3600,
+                weekIn: TimeInterval = 2 * 86400, login: String? = ann, expected: String? = ann, resolved: ResolvedAccount? = nil) -> StatusRecord {
+        var s = StatusRecord(state: state); s.loginEmail = login; s.expectedEmail = expected; s.fiveHour = five; s.weekly = week
+        s.fiveHourResets = t0.addingTimeInterval(fiveIn); s.weeklyResets = t0.addingTimeInterval(weekIn)
+        s.updatedAt = t0.addingTimeInterval(-age); s.numbersOwner = login; s.numbersAccount = uuid(1); s.resolved = resolved
+        return s
+    }
+    let own = ResolvedAccount(account: uuid(1), email: ann, fromApp: true, numbersFor: ann, differs: false, line: nil, lit: true,
+                              clash: nil, at: t0, codeAccount: uuid(1), codeName: ann)
+    let split = ResolvedAccount(account: uuid(1), email: ann, fromApp: true, numbersFor: bob, differs: true, line: "split", lit: true,
+                                clash: nil, at: t0, codeAccount: uuid(2), codeName: bob)
+
+    // the codec: sorted keys, seconds since 1970, empty fields left out; an older record (fewer keys) decodes; unknown keys skipped
+    let fresh = record(resolved: own)
+    let bytes = StatusCodec.encode(fresh)
+    let text = bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
+    check(StatusCodec.decode(bytes ?? Data()) == fresh && !text.contains("credits") && text.contains("\"fiveHour\":12")
+          && text.range(of: "\"expectedEmail\".*\"fiveHour\"", options: .regularExpression) != nil,
+          "the codec: a round trip, empty fields left out, sorted keys")
+    let older = StatusCodec.decode(Data(#"{"state":"ok","weekly":40,"updatedAt":1800000000,"someday":1}"#.utf8))
+    check(older?.weekly == 40 && older?.resolved == nil && older?.updatedAt == t0, "an older record decodes; a key it doesn't know is skipped")
+    check(StatusCodec.decode(Data("{ not json".utf8)) == nil, "not a record: nil")
+    var wild = record(); wild.fiveHour = 1e300; wild.weekly = -5; wild.fiveHourResets = t0.addingTimeInterval(1e300); wild.updatedAt = t0
+    let tame = StatusCodec.drawable(wild, now: t0)
+    check(tame.fiveHour == nil && tame.weekly == nil && tame.fiveHourResets == nil && tame.weeklyResets != nil && tame.updatedAt == t0
+          && StatusCodec.drawable(record(five: 1000), now: t0).fiveHour == 1000,
+          "drawable: a percent outside 0–1,000 or a time over 100 years away is left out; 1,000 % kept")
+
+    // the ages: the read interval (1 minute to a day), 5 minutes at least, plus a minute; grey after three reads, 30 min at least
+    check(StatusAges.freshFor(pollMinutes: 5) == 360 && StatusAges.greyAfter(pollMinutes: 5) == 1800
+          && StatusAges.freshFor(pollMinutes: 20) == 1260 && StatusAges.greyAfter(pollMinutes: 20) == 3600
+          && StatusAges.freshFor(pollMinutes: .max) == TimeInterval(1440 * 60 + 60) && StatusAges.greyAfter(pollMinutes: .min) == 1800,
+          "StatusAges: the formula, and an absurd interval clamped (no overflow)")
+
+    // the look: its own defaults for keys it lacks or can't read; unknown keys skipped
+    let dec = JSONDecoder()
+    let bare = try? dec.decode(ProfileLook.self, from: Data("{}".utf8))
+    let some = try? dec.decode(ProfileLook.self, from: Data(#"{"name":"Main","pollMinutes":20,"windowDot":"yes","colour":"red"}"#.utf8))
+    check(bare == ProfileLook() && bare?.pollMinutes == 5 && bare?.windowDot == true && some?.name == "Main" && some?.pollMinutes == 20
+          && some?.windowDot == true && some?.shownLabel == "MAIN" && ProfileLook(name: "Workplace", label: "").shownLabel == "WORKPL"
+          && ProfileLook(name: "Main", label: "M1").shownLabel == "M1",
+          "ProfileLook: defaults for missing or unreadable keys, unknown ones skipped; the label from the name when it has none")
+
+    // the picture, from the one display value
+    let look = ProfileLook(name: "Main", label: "MAIN")
+    func face(_ r: StatusRecord?, window: Bool = false, look l: ProfileLook = look) -> StatusFace {
+        StatusFace.of(record: r, look: l, windowOpen: window, source: "reader", now: t0)
+    }
+    let f = face(fresh)
+    check(f.label == "MAIN" && f.fiveHour == 12 && f.weekly == 40 && !f.grey && !f.otherAccount && f.full == nil && !f.windowOpen,
+          "fresh, the profile's own: the numbers, not grey, nothing full")
+    check(f.fiveHourElapsed.map { abs($0 - 80) < 0.001 } == true && f.weeklyElapsed.map { abs($0 - (5.0 / 7 * 100)) < 0.001 } == true,
+          "the elapsed shares: an hour left of five is 80 %, two days left of seven")
+    let old = face(record(age: 40 * 60, resolved: own))
+    check(old.grey && old.weekly == 40, "40 minutes old: grey, the numbers still drawn")
+    let full = face(record(five: 100, fiveIn: 3 * 3600, resolved: own))
+    check(full.full?.kind == .fiveHour && full.full?.resets == t0.addingTimeInterval(3 * 3600), "a fresh full 5-hour limit: the full limit, with its reset")
+    check(face(record(five: 100, age: 10 * 60, fiveIn: 3 * 3600, resolved: own)).full == nil, "the same read 10 minutes ago: nothing full")
+    let splitFace = face(record(login: bob, resolved: split))
+    check(splitFace.fiveHour == nil && splitFace.weekly == nil && splitFace.grey, "a split (the numbers another account's): no numbers on the picture")
+    let out = face(record(state: "noLogin", resolved: own))
+    check(out.fiveHour == nil && out.weekly == nil && out.grey, "signed out: no numbers, grey")
+    check(face(record(login: bob, expected: ann)).otherAccount, "signed in to another account than the folder names: the warning")
+    let none = face(nil)
+    check(none.fiveHour == nil && none.weekly == nil && none.grey && none.full == nil && none.label == "MAIN", "no record yet: blank and grey")
+    check(face(fresh, window: true).windowOpen && !face(fresh, window: true, look: ProfileLook(name: "Main", windowDot: false)).windowOpen
+          && !face(fresh, window: false).windowOpen, "the window mark: only while the window runs and the look shows it")
+    // the one display value: the record's own rules (an expired sign-in's numbers dropped, a passed reset has no percent)
+    let display = ProfileDisplay.of(record(weekIn: -60, resolved: own), ages: look.ages, source: "reader", now: t0)
+    check(display.usage?.weekly == nil && display.usage?.fiveHour == 12 && display.usage?.source == "reader",
+          "ProfileDisplay.of: a passed reset has no percent; the caller's source words when the record names none")
+    check(StatusFace.of(display, look: look, windowOpen: false, now: t0) == face(record(weekIn: -60, resolved: own)),
+          "the picture from a display value is the picture from its record")
+}
+
 print("core checks: \(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)
