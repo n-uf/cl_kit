@@ -3,7 +3,7 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
-## Unreleased
+## 26.11.3
 
 - **AddressPrivacy joins** (`Privacy/`, from cl_quick's `Shared/AddressPrivacy/` at 190fa1b): an account address on screen
   is one fixed stand-in or the words "hidden address", never the real address blurred or masked, in views, labels and plain
