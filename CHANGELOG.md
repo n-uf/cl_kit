@@ -3,6 +3,17 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
+## Unreleased
+
+- **The status record moves into ProfileCore.** `StatusRecord`, `ResolvedAccount` and `StatusCodec` (with the drawable
+  clamp) are cl_audit's status record as it writes it, so every app reads one shape. `StatusAges` gives its age formula,
+  and `ProfileDisplay.of` turns a record into the one display value.
+- **A profile's small picture, as data.** `StatusFace.of` gives the numbers, grey, the other-account warning, the full
+  limit, the elapsed shares and the window mark from a display value and a `ProfileLook` (a plain value with its own
+  defaults), so every picture of a profile follows the same rules. How it looks stays the app's.
+- **Checks:** the core suite gains the codec, the ages, the look's defaults and the picture in each state.
+- Additive: nothing that was in ProfileCore changes.
+
 ## 26.11.3
 
 - **AddressPrivacy joins** (`Privacy/`, from cl_quick's `Shared/AddressPrivacy/` at 190fa1b): an account address on screen
