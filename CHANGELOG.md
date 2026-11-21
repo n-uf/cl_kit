@@ -5,8 +5,8 @@ Versions and release).
 
 ## 26.11.1
 
-The first release: cl_audit's `Core/`, `Run/` and `Auth/` move here with their history, from cl_audit 26.11.70 plus the
-shared sign-in it took from cl_quick.
+The first release: cl_audit's `Core/`, `Run/` and `Auth/` move here with their history, exactly as in cl_audit
+26.11.79 (7444e6f), with the shared sign-in it took from cl_quick.
 
 - **ProfileCore** (`Core/`), **Runs** (`Run/`) and **ClaudeAuth** (`Auth/`) as they were in cl_audit, including
   `Run/ProcessTable.swift`, `Auth/StoredSignIn.swift` and **ClaudeSignIn** (`Auth/ClaudeSignIn.swift`), the sign-in in a
