@@ -1,0 +1,44 @@
+name: Checks
+
+# Builds cl_kit's modules (with and without Auth/Keychain.swift) and runs every suite, on each push to main and each pull
+# request. No secrets are used; the suites read no Keychain and no real Claude Code folder.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request replaces the run still going.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    # Apple silicon (the modules target arm64-apple-macos13.0), the same image cl_quick's CI uses; its default Xcode as it comes.
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swiftc --version
+
+      - name: Build (with the Keychain)
+        run: scripts/build.sh
+
+      - name: Build (without the Keychain)
+        run: OUT=build/no-keychain scripts/build.sh --no-keychain
+
+      # one run builds the modules once (testing on) and runs every suite; a red suite is named at the end
+      - name: Checks/run.sh all
+        run: Checks/run.sh all
