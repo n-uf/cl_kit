@@ -2,8 +2,8 @@
 
 The shared way to run a program, in one Swift module: Foundation only (Process, and posix_spawn for `ownGroup`), no app's paths,
 words or global state.
-ProfileCore never depends on it; the widget doesn't link it. cl_audit builds it first (`build.sh`, `Checks/run.sh`, and the
-quick chat's own `Checks/quick-chat/run.sh`) as a static library; cl_quick can compile it from source too.
+ProfileCore never depends on it; the widget doesn't link it. It is built after ProfileCore (`scripts/modules.sh`) as a
+static library; cl_audit and cl_quick build it from their vendored copy of cl_kit. The callers below are cl_audit's.
 
 Who runs through it:
 

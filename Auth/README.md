@@ -5,9 +5,9 @@ folder signed in to, and is that verified or guessed. Around it: the folder's Ke
 the watch for a changed sign-in, and Claude Code's own sign-in, renew and sign-out on the folder.
 
 It sits beside ProfileCore (`Core/`), above it: it imports ProfileCore (`Login`, `AccountID`, `AccountIdentity`), and
-ProfileCore never imports it (ProfileCore stays Foundation-only, with no Keychain and no processes). cl_audit builds it
-as a static library after ProfileCore (`build.sh`, `Checks/run.sh`); the app links it, the widget doesn't. Later it
-moves to its own repository with ProfileCore and cl_quick compiles it from source too.
+ProfileCore never imports it (ProfileCore stays Foundation-only, with no Keychain and no processes). It is built
+as a static library after ProfileCore and Runs (`scripts/modules.sh`); cl_audit's app links it (its widget doesn't), and
+cl_quick links it built without `Keychain.swift`, each from its vendored copy of cl_kit.
 
 | File | What it holds |
 | --- | --- |

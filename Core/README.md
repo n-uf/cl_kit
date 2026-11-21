@@ -1,9 +1,9 @@
 # ProfileCore
 
 The rules any app reading Claude Code's accounts and usage needs, in one Swift module: Foundation only, no app's paths,
-files, wording or global state, every input a parameter (`now`, a calendar, thresholds, the data). cl_audit builds it
-first (`build.sh`, `Checks/run.sh`) as a static library that the app, the widget and the checks import. Later it moves to
-its own repository and cl_quick compiles it from source too.
+files, wording or global state, every input a parameter (`now`, a calendar, thresholds, the data). It is built
+first (`scripts/modules.sh`) as a static library; cl_audit's app, widget and checks and cl_quick import it from their
+vendored copy of cl_kit. `Sources/…` paths below are cl_audit's.
 
 | File | What it holds |
 | --- | --- |
