@@ -151,7 +151,9 @@ run_addressprivacy() {
   local lint=0 n=0 f bad
   for f in "$kit_root"/Privacy/*.swift; do
     n=$((n + 3))
-    bad="$(grep -n -E '^[[:space:]]*import ' "$f" | grep -v -E 'import (Foundation|AppKit|CoreImage|Combine|SwiftUI)$' || true)"
+    # every import, attributed ones too (@testable, @_exported, @preconcurrency); only the plain form of the five is allowed
+    bad="$(grep -n -E '^[[:space:]]*(@[A-Za-z_]+(\([^)]*\))?[[:space:]]+)*import[[:space:]]' "$f" \
+      | grep -v -E '^[0-9]+:[[:space:]]*import (Foundation|AppKit|CoreImage|Combine|SwiftUI)[[:space:]]*$' || true)"
     [[ -z "$bad" ]] || { echo "FAIL privacy lint: $f imports more than Apple's UI frameworks: $bad"; lint=1; }
     bad="$(grep -n -E '\b(NSLog|os_log|Logger\(|print\()' "$f" | grep -v -E '^[0-9]+: *//' || true)"
     [[ -z "$bad" ]] || { echo "FAIL privacy lint: $f logs: $(printf '%s' "$bad" | head -2)"; lint=1; }
@@ -159,7 +161,8 @@ run_addressprivacy() {
     [[ -z "$bad" ]] || { echo "FAIL privacy lint: $f names an app: $(printf '%s' "$bad" | head -2)"; lint=1; }
   done
   n=$((n + 1))
-  bad="$(grep -n -E '^[[:space:]]*import AddressPrivacy' "$kit_root"/Core/*.swift "$kit_root"/Run/*.swift "$kit_root"/Auth/*.swift || true)"
+  bad="$(grep -n -E '^[[:space:]]*(@[A-Za-z_]+(\([^)]*\))?[[:space:]]+)*import[[:space:]]+([a-z]+[[:space:]]+)?AddressPrivacy([^A-Za-z0-9_]|$)' \
+    "$kit_root"/Core/*.swift "$kit_root"/Run/*.swift "$kit_root"/Auth/*.swift || true)"
   [[ -z "$bad" ]] || { echo "FAIL privacy lint: a layer module imports AddressPrivacy: $bad"; lint=1; }
   [[ $lint -ne 0 ]] || echo "privacy lint: $n/$n (Apple's frameworks only, no logging, no app named, imported by no layer)"
   local mods="$WORK/addressprivacy/modules" bin="$WORK/addressprivacy/cl_kit-checks-addressprivacy" plink=()

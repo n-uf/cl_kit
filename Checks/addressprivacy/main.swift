@@ -41,7 +41,7 @@ check("stand-in: one fixed string, address-shaped (letters, an @, .com)", Addres
 check("drawn: the stand-in for every address with the blur on, nothing revealed",
       Set(samples.map { AddressText.drawn(address: $0, revealed: false, blur: true) }) == [AddressText.standIn])
 check("drawn: never any part of any sample address", samples.allSatisfy { !leaks(AddressText.drawn(address: $0, blur: true), of: $0) })
-check("drawn: the same length for a 6- and a 45-letter address (no length in it)",
+check("drawn: the same length for an 8- and a 45-letter address (no length in it)",
       AddressText.drawn(address: "q@e.test", blur: true).count == AddressText.drawn(address: long, blur: true).count)
 check("drawn: revealed it is the address; with the blur off too", samples.allSatisfy {
     AddressText.drawn(address: $0, revealed: true, blur: true) == $0 && AddressText.drawn(address: $0, blur: false) == $0 })

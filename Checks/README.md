@@ -2,7 +2,7 @@
 
 The suites of cl_kit's modules: programs compiled against one module (and what it imports) only, run in a throwaway home
 (`Checks/.work/<suite>/home`), printing `FAIL` per failed check and a count at the end. `run.sh` builds the modules once with
-testing on (`Checks/.work/modules`) and runs every suite; each app runs the same script on its vendored copy.
+testing on (`Checks/.work/modules`; addressprivacy builds its own, apart) and runs every suite; each app runs the same script on its vendored copy.
 
 ```
 Checks/run.sh [core|runs|auth|claudesignin|nokeychain|addressprivacy|all] [--no-build]
