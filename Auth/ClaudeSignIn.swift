@@ -329,7 +329,8 @@ public final class ClaudeSignIn {
         guard loginEnded else {
             // a login still running is never ended on a guess, nor on two sources that disagree (Claude Code writes the
             // record before its sign-in): only on the word and the record agreeing on another account than the one wanted
-            if case .wrong(let a) = judged, answer.verdict == .verified, answer.record != nil, let wanted {
+            if case .wrong(let a) = judged, answer.verdict == .verified || answer.verdict == .seatNotKnown, answer.record != nil,
+               let wanted {
                 finish(.wrongAccount(signedIn: a, wanted: wanted))
             }
             return
@@ -359,7 +360,10 @@ public final class ClaudeSignIn {
     /// An account wanted by its id is compared by ids only: a word that names no id (a running claude's) takes the record's,
     /// and only when the record is the same seat or address as the word.
     static func judge(_ answer: FolderSignIn, wanted: SignedInAccount?, record: SignedInAccount?) -> Judged {
-        guard answer.verdict == .verified, var account = answer.account else { return .unsure(answer.account ?? record) }
+        // a seat not known is the verified word on the record's account: judged by the word, as a verified one
+        guard answer.verdict == .verified || answer.verdict == .seatNotKnown, var account = answer.account else {
+            return .unsure(answer.account ?? record)
+        }
         guard let wanted else { return .match(account) }
         if wanted.organizationID == nil && wanted.organizationName == nil { account.organizationID = nil; account.organizationName = nil }
         if wanted.accountID != nil && account.accountID == nil {
