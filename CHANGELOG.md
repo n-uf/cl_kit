@@ -14,19 +14,36 @@ yet).
   another account), and the same address with no organisation on either side is the same seat (was address only).
 - **Claude Code's account, settled (D1–D5).** `FolderSignIn.answer`: signed in by an id or an address (`isSignedIn`); a new
   `seatNotKnown` verdict when only one side names an organisation (nothing taken from the record); a verified word over the
-  record, and `numbersAccount`, the account the verified source's numbers belong to, never the record's when they differ.
+  record, and `numbersBelongTo`, the account the verified source's numbers belong to, never the record's when they differ.
 - **ProcessTrail**, a running claude's trail (from cl_quick's `AccountTrail`): `FolderSignIn.answer(record:trail:)` keeps the
   launch organisation id across a rename and trusts a silent process only while the record names the seat it started on;
   `Authenticator.signIn(trail:)`.
-- **FolderRecordReader**, the one `.claude.json` reader: named fields only, bounded, parsed again only when the stamp moved,
-  a change of seat said once.
-- **AccountKey**, the saved key (account id, organisation): `email:` and `name:` placeholders upgraded in place, never moved
-  onto another account or seat; a text form for larger keys.
-- **ClaudeSignIn** judges a `seatNotKnown` answer as it judged the loose verified one before.
+- **FolderRecordReader**, the one `.claude.json` reader: named fields only, bounded, parsed again only when the stamp moved;
+  `generation` counts each time the record names someone else (another account or seat, a sign-in, a sign-out), so every
+  caller sees every change. `AuthTools.reader` puts `Authenticator.record()` on it, and `SignInChangeWatch.look(_:folder:)`
+  reads through it.
+- **AccountKey**, the saved key (account id, organisation): an `email:` placeholder upgraded to the id in place, a `name:`
+  placeholder to the organisation's id of the same seat; a key whose seat isn't known gets an organisation only when the
+  caller says the numbers' own source named it (`seatOfTheNumbers`), never moved onto another account or seat; a text form
+  for larger keys.
+- **The owner rule follows the names.** `AccountIdentity.addressOnly` needs no organisation name either, so a running
+  claude's word (it names its organisation by name) never takes the other seat on its address by the address alone.
+- **ClaudeSignIn** judges a `seatNotKnown` answer as it judged the loose verified one before, except when the account
+  wanted names its organisation: then the sign-in is unverified (which seat it landed on isn't known).
+- **Source breaks** (no app calls these yet):
+  - `FolderSignIn.Verdict` has a new case, `seatNotKnown`: a `switch` over it needs the case.
+  - `SignedInAccount.Match` is ProfileCore's `SeatMatch`: `.address` is gone, `.seatNotKnown` takes its place.
+  - `SignedInAccount.matches` is renamed `maybeSame` (it is "not `.different`", looser than ProfileCore's `matches`), and
+    answers yes in two more places: the same account id with an organisation on one side only, and the same address with
+    no organisation on either side.
+  - ProfileCore's `AccountIdentity.matches`, `sameAccount` and `addressOnly` answer differently only for identities that
+    carry an organisation name (none did before): an address alone against a named organisation is a seat not known.
 - **Checks:** the auth suite gains one case per disagreement (D1–D5), the risks (a sign-in under a running claude, personal
   plus Team on one address, a one-sided organisation, a renamed organisation, a silent process with the record changed), the
-  saved key and the folder reader, and a lint that no public ClaudeAuth name says plainly "in use"; the core suite gains the
-  one seat comparison.
+  saved key, the folder reader (its generation, shared by the watch and the authenticator), and a lint that ClaudeAuth
+  declares nothing named plainly "in use" (types, functions, properties, enum cases, extension members; ClaudeAuth only);
+  the core suite gains the one seat comparison and headline cases with organisation names; the claudesignin suite gains a
+  seat not known against a seat wanted (unverified) and against an address wanted (signed in).
 - **docs/design/**: the platform concept page.
 
 And the status record and the face, into ProfileCore:
