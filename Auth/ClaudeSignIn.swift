@@ -360,11 +360,15 @@ public final class ClaudeSignIn {
     /// An account wanted by its id is compared by ids only: a word that names no id (a running claude's) takes the record's,
     /// and only when the record is the same seat or address as the word.
     static func judge(_ answer: FolderSignIn, wanted: SignedInAccount?, record: SignedInAccount?) -> Judged {
-        // a seat not known is the verified word on the record's account: judged by the word, as a verified one
+        // a seat not known is the verified word on the record's account: judged by the word, as a verified one, unless the
+        // account wanted names its organisation (its seat): then which seat the sign-in landed on isn't known
         guard answer.verdict == .verified || answer.verdict == .seatNotKnown, var account = answer.account else {
             return .unsure(answer.account ?? record)
         }
         guard let wanted else { return .match(account) }
+        if answer.verdict == .seatNotKnown, wanted.organizationID != nil || wanted.organizationName != nil {
+            return .unsure(answer.account)
+        }
         if wanted.organizationID == nil && wanted.organizationName == nil { account.organizationID = nil; account.organizationName = nil }
         if wanted.accountID != nil && account.accountID == nil {
             guard let r = record, r.accountID != nil, r.match(answer.account!) != .different else { return .unsure(answer.account) }
@@ -753,8 +757,8 @@ public struct TerminalProfiles {
     public static let system = TerminalProfiles(
         read: {
             guard let d = UserDefaults(suiteName: "com.apple.Terminal"), let all = d.dictionary(forKey: "Window Settings") else { return nil }
-            let inUse = ["Default Window Settings", "Startup Window Settings"].compactMap { d.string(forKey: $0) }
-            return (all, Set(inUse))
+            let defaultOrStartup = ["Default Window Settings", "Startup Window Settings"].compactMap { d.string(forKey: $0) }
+            return (all, Set(defaultOrStartup))
         },
         write: { UserDefaults(suiteName: "com.apple.Terminal")?.set($0, forKey: "Window Settings") })
 }
