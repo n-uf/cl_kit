@@ -75,6 +75,25 @@ do {
     check(AccountIdentity(a).withoutOrganization.sameAccount(AccountIdentity(account: uuid(1).uppercased(), email: nil, organization: nil, source: .verified))
           && !AccountIdentity(a).sameAccount(AccountIdentity(account: uuid(1), email: nil, organization: nil, source: .verified)),
           "an id named without an organisation: compared with the seat's left out (withoutOrganization)")
+    // the one seat comparison: the account, then the organisation by its id, else its name (any case); one-sided: not known
+    func who(_ id: Int?, _ email: String?, org: Int? = nil, name: String? = nil) -> AccountIdentity {
+        AccountIdentity(account: id.map(uuid), email: email, organization: org.map(uuid), organizationName: name, source: .guessed)
+    }
+    check(who(1, nil, org: 51).compare(who(1, nil, org: 51)) == .seat && who(1, nil, org: 51).compare(who(1, nil, org: 52)) == .different
+          && who(1, nil).compare(who(1, nil)) == .seat && who(1, nil, org: 51).compare(who(1, nil)) == .seatNotKnown,
+          "compare by ids: the organisation's id; none on both sides is one; one side only: seat not known")
+    check(who(nil, "wu@example.com", name: "Example Team").compare(who(nil, "WU@example.com", name: "EXAMPLE TEAM")) == .seat
+          && who(nil, "wu@example.com", name: "Example Team").compare(who(nil, "wu@example.com", name: "Wu Personal")) == .different
+          && who(nil, "wu@example.com", name: "Example Team").compare(who(1, "wu@example.com", org: 52)) == .seatNotKnown,
+          "compare by address: the organisation's name in any case; an id on one side and a name on the other can't be compared")
+    check(who(1, "wu@example.com", org: 52, name: "Old Name").compare(who(1, nil, org: 52, name: "New Name")) == .seat
+          && who(1, nil, org: 51, name: "Example Team").compare(who(1, nil, org: 52, name: "Example Team")) == .different,
+          "both organisations' ids: they decide, not the names")
+    check(who(1, "wu@example.com").compare(who(2, "wu@example.com")) == .different
+          && who(nil, "wu@example.com").compare(who(nil, "zedekiah@example.com")) == .different && who(nil, nil).compare(who(nil, nil)) == .different,
+          "another id (never the address then), another address, or nobody: different")
+    check(!who(1, nil, org: 51).matches(who(1, nil)) && who(1, nil, org: 51).matches(who(1, nil, org: 51)),
+          "matches is the same seat (a seat not known isn't)")
     // the saved shapes stay as they were (older Dock icon copies read the same files)
     let keys = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(Seat(account: "a", organization: "o", email: "e@example.com"))) as? [String: Any])?.keys.sorted()
     check(keys == ["account", "email", "organization"], "Seat's JSON keys: \(keys ?? [])")
