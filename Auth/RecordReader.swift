@@ -42,7 +42,15 @@ public final class FolderRecordReader: @unchecked Sendable {
         lock.lock()
         if let hit = cache[path], hit.stamp == before { lock.unlock(); return Look(account: hit.account, stamp: before, changed: false) }
         lock.unlock()
-        let account = before == .none ? nil : SignedInAccount.record(parse(path))
+        // no file: nothing parsed, and nothing kept unless a parse came before (then it is gone: signed out if it named
+        // someone), so a file that appears later is its first parse
+        guard before != .none else {
+            lock.lock(); defer { lock.unlock() }
+            guard let last = cache[path] else { return Look(account: nil, stamp: .none, changed: false) }
+            cache[path] = (.none, nil)
+            return Look(account: nil, stamp: .none, changed: last.account != nil)
+        }
+        let account = SignedInAccount.record(parse(path))
         guard stampOf(path) == before else { return Look(account: account, stamp: before, changed: false) }
         lock.lock(); defer { lock.unlock() }
         // another thread may have parsed the same file meanwhile: the change is said by whichever kept it first
