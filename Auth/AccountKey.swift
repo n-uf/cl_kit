@@ -18,7 +18,10 @@ public struct AccountKey: Codable, Hashable {
     /// while the seat isn't known (no organisation named yet).
     public var organization: String?
 
-    public init(account: String, organization: String? = nil) { self.account = account; self.organization = organization }
+    /// A key as written (case doesn't count: both parts are kept in lower case, as the other initialisers keep them).
+    public init(account: String, organization: String? = nil) {
+        self.account = account.lowercased(); self.organization = organization?.lowercased()
+    }
 
     /// The key of an account as a source names it; nil when it names nobody (no id, no address).
     public init?(_ a: SignedInAccount) {
@@ -39,10 +42,10 @@ public struct AccountKey: Codable, Hashable {
     public init?(text: String) {
         let parts = text.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard (1...2).contains(parts.count), let a = parts[0].removingPercentEncoding, !a.isEmpty else { return nil }
-        account = a
+        account = a.lowercased()
         if parts.count == 2 {
             guard let o = parts[1].removingPercentEncoding, !o.isEmpty else { return nil }
-            organization = o
+            organization = o.lowercased()
         }
     }
 
@@ -58,16 +61,22 @@ public struct AccountKey: Codable, Hashable {
     /// account that names no id (a running claude's word alone) isn't this key's by the key alone.
     public func match(_ a: SignedInAccount) -> SeatMatch { identity.match(a) }
 
-    /// This key with what `a` knows better filled in: the account id for an address placeholder, the organisation where
-    /// none was named (the seat first seen), its id for a name placeholder of the same seat. The key itself when `a`
-    /// adds nothing; nil when `a` is another account or seat (never a key moved onto another one).
-    public func upgraded(with a: SignedInAccount) -> AccountKey? {
+    /// This key with what `a` knows better filled in: the account id for an address placeholder, and the organisation's id
+    /// for a name placeholder of the same seat. The key itself when `a` adds nothing; nil when `a` is another account or
+    /// seat (never a key moved onto another one).
+    ///
+    /// A key whose seat isn't known gets an organisation only when `seatOfTheNumbers` is true: the caller says `a` is the
+    /// account the numbers kept under this key came from (their own source named that seat). Otherwise the key stays
+    /// apart: the first seat seen on an address isn't, by itself, the seat its numbers were read on.
+    public func upgraded(with a: SignedInAccount, seatOfTheNumbers: Bool = false) -> AccountKey? {
         let m = match(a)
         guard m != .different else { return nil }
         var k = self
         if isPlaceholder, let id = a.accountID { k.account = AccountID.normal(id) }
         if organization == nil {
-            k.organization = a.organizationID.map(AccountID.normal) ?? a.organizationName.map { Self.namePrefix + $0.lowercased() }
+            if seatOfTheNumbers {
+                k.organization = a.organizationID.map(AccountID.normal) ?? a.organizationName.map { Self.namePrefix + $0.lowercased() }
+            }
         } else if organization?.hasPrefix(Self.namePrefix) == true, m == .seat, let id = a.organizationID {
             k.organization = AccountID.normal(id)
         }
