@@ -187,6 +187,19 @@ public struct ResolvedAccount: Codable, Equatable {
     /// Claude Code's folder account's organisation id (lower case), with `codeAccount`: one seat. "": the folder's record
     /// names the seat with no organisation; nil: not known.
     public var codeOrganization: String? = nil
+    /// The one line is "Usage: Claude Code on <codeName>" (the numbers are another account's than the one in use). Only the
+    /// fact is stored, not the sentence: the app builds it when it shows it (after `usageOnPrefix`), so the sentence follows
+    /// whether addresses are hidden and the record never holds an address as text. A record from before it holds the sentence
+    /// in `line`: `StatusCodec.drawable` turns it into this.
+    public var codeUsageLine: Bool? = nil
+    /// The one line is the split's sentence (the app can't read the account in use's usage: Claude Code's sign-in is on
+    /// another account, or a switch waits for the Claude app). Set only on the value a view is shown (never written), and,
+    /// like `codeUsageLine`, only the fact is kept: the app builds the sentence from the accounts the record names when it
+    /// draws it, so no record holds a sentence with an address in it.
+    public var splitLine: Bool? = nil
+
+    /// The start of the sentence `codeUsageLine` stands for; an older record holds it whole in `line`.
+    public static let usageOnPrefix = "Usage: Claude Code on "
 
     public init(account: String?, email: String?, fromApp: Bool, numbersFor: String?, differs: Bool, line: String?, lit: Bool,
                 clash: String?, at: Date, recordTooLarge: Bool? = nil, codeAccount: String? = nil, codeName: String? = nil,
@@ -246,6 +259,13 @@ public enum StatusCodec {
         s.fiveHour = percent(s.fiveHour); s.weekly = percent(s.weekly)
         s.fiveHourResets = time(s.fiveHourResets); s.weeklyResets = time(s.weeklyResets); s.updatedAt = time(s.updatedAt)
         s.scoped = s.scoped?.map { ScopedLimit(name: $0.name, percent: percent($0.percent), resets: time($0.resets)) }
+        // an older record holds "Usage: Claude Code on <account>" as text, an address in it as it was written: only the fact is
+        // kept, and the app builds the sentence when it shows it (so no address reaches a display value's note from here)
+        // (with no name to build it from, the line is dropped: the reader writes the record again with its next read)
+        if var r = s.resolved, r.line?.hasPrefix(ResolvedAccount.usageOnPrefix) == true {
+            r.line = nil; r.codeUsageLine = r.codeName == nil ? nil : true
+            s.resolved = r
+        }
         return s
     }
 
