@@ -8,6 +8,11 @@ Versions and release).
 - **The status record moves into ProfileCore.** `StatusRecord`, `ResolvedAccount` and `StatusCodec` (with the drawable
   clamp) are cl_audit's status record as it writes it, so every app reads one shape. `StatusAges` gives its age formula,
   and `ProfileDisplay.of` turns a record into the one display value.
+- **The account answer's line is a fact, not a sentence.** `ResolvedAccount` gains `codeUsageLine` and `splitLine`
+  (optional, left out when empty: older records decode) and `usageOnPrefix`; the app builds the sentence when it shows it,
+  so no record holds an address as text. `StatusCodec.drawable` turns an older record's stored "Usage: Claude Code on …"
+  into the fact, so the address never reaches a display value's note, and `ProfileDisplay.of` takes the app's builder for
+  the line (`lineText:`, the record's own `line` by default).
 - **A profile's small picture, as data.** `StatusFace.of` gives the numbers, grey, the other-account warning, the full
   limit, the elapsed shares and the window mark from a display value and a `ProfileLook` (a plain value with its own
   defaults), so every picture of a profile follows the same rules. How it looks stays the app's.
