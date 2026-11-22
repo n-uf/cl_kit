@@ -61,6 +61,9 @@ public struct Authenticator {
         FolderSignIn.answer(record: record(), verified: verified)
     }
 
+    /// The one answer with a running claude's trail: its word over the record, and whose its numbers are.
+    public func signIn(trail: ProcessTrail) -> FolderSignIn { FolderSignIn.answer(record: record(), trail: trail) }
+
     /// The record's stamp, for SignInChangeWatch.look.
     public func recordStamp() -> RecordStamp { RecordStamp.of(folder.recordPath) }
 
