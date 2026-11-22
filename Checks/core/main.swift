@@ -375,6 +375,22 @@ do {
           && answer(Headline.Owner(inUse: who(2, "pat@example.com", org: uuid(52)), signIn: process)).split != nil
           && answer(Headline.Owner(inUse: mo, signIn: process)).split != nil,
           "an identity without an id (a running process's): by address (any case) and organisation")
+    // with organisation names (a running claude names its organisation by name only): the one comparison decides
+    func named(_ n: Int?, _ email: String?, org: String? = nil, name: String?) -> AccountIdentity {
+        AccountIdentity(account: n.map(uuid), email: email, organization: org, organizationName: name, source: n == nil ? .verified : .guessed)
+    }
+    let teamWord = named(nil, "wu@example.com", name: "Example Team")
+    check(answer(Headline.Owner(inUse: named(2, "wu@example.com", org: uuid(52), name: "EXAMPLE TEAM"), signIn: teamWord)).split == nil
+          && answer(Headline.Owner(inUse: named(2, "wu@example.com", org: uuid(51), name: "Wu Personal"), signIn: teamWord)).split != nil,
+          "names: the same organisation in any case is no split; the other seat on the address is one")
+    check(answer(Headline.Owner(inUse: who(nil, "wu@example.com"), signIn: teamWord)).split != nil
+          && answer(Headline.Owner(reading: teamWord, label: who(nil, "wu@example.com"))).otherReading
+          && answer(Headline.Owner(reading: teamWord, label: named(nil, "wu@example.com", name: "example team"))).otherReading == false,
+          "names: an address alone against a named organisation is a seat not known, never shown as the same (no split hidden, no label taken)")
+    check(who(nil, "wu@example.com").sameAccount(named(2, "wu@example.com", org: uuid(51), name: "Wu Personal"))
+          && !teamWord.addressOnly && !teamWord.sameAccount(named(2, "wu@example.com", org: uuid(51), name: "Wu Personal"))
+          && teamWord.sameAccount(named(2, "wu@example.com", org: uuid(52), name: "Example Team")),
+          "the owner rule: a word naming its organisation isn't address-only, so it never takes the other seat by the address")
     check(answer(Headline.Owner(inUse: nil, signIn: mo, differs: true)).split == nil && answer(Headline.Owner(inUse: pat, signIn: nil, differs: true)).split == nil,
           "no account in use apart from the sign-in, or no sign-in: no split")
     check(answer(Headline.Owner(inUse: pat, signIn: mo, differs: true, elsewhere: true)).split == nil,
