@@ -14,15 +14,18 @@ public final class FolderRecordReader: @unchecked Sendable {
         public var account: SignedInAccount?
         /// The record's stamp the account was read at.
         public var stamp: RecordStamp
-        /// The record names another seat than at the last parse (signed in, signed out, or another account or seat);
-        /// the first parse of a file is no change, and a rewrite for the same seat isn't one. Said once per change, by
-        /// the look whose parse found it.
+        /// How many times the record has named someone else since this reader first parsed it: another account or seat
+        /// (`.different`), or someone after nobody and nobody after someone. A rewrite for the same seat, or a seat that
+        /// was only not known before, isn't a change. Every caller keeps the last generation it saw and compares: each
+        /// one sees each change, whoever's look parsed it.
+        public var generation: Int
+        /// This look's own parse found the change (`generation` moved on it): for a single caller only.
         public var changed: Bool
     }
 
     private let parse: (String) -> [String: Any]?
     private let stampOf: (String) -> RecordStamp
-    private var cache: [String: (stamp: RecordStamp, account: SignedInAccount?)] = [:]
+    private var cache: [String: (stamp: RecordStamp, account: SignedInAccount?, generation: Int)] = [:]
     private let lock = NSLock()
 
     /// `parse` reads a record file's oauthAccount block (bounded, never blocking on a FIFO: RecordFile's by default);
@@ -40,34 +43,52 @@ public final class FolderRecordReader: @unchecked Sendable {
     public func look(path: String) -> Look {
         let before = stampOf(path)
         lock.lock()
-        if let hit = cache[path], hit.stamp == before { lock.unlock(); return Look(account: hit.account, stamp: before, changed: false) }
+        if let hit = cache[path], hit.stamp == before {
+            lock.unlock(); return Look(account: hit.account, stamp: before, generation: hit.generation, changed: false)
+        }
         lock.unlock()
         // no file: nothing parsed, and nothing kept unless a parse came before (then it is gone: signed out if it named
         // someone), so a file that appears later is its first parse
         guard before != .none else {
             lock.lock(); defer { lock.unlock() }
-            guard let last = cache[path] else { return Look(account: nil, stamp: .none, changed: false) }
-            cache[path] = (.none, nil)
-            return Look(account: nil, stamp: .none, changed: last.account != nil)
+            guard let last = cache[path] else { return Look(account: nil, stamp: .none, generation: 0, changed: false) }
+            return keep(path, stamp: .none, account: nil, after: last)
         }
         let account = SignedInAccount.record(parse(path))
-        guard stampOf(path) == before else { return Look(account: account, stamp: before, changed: false) }
+        guard stampOf(path) == before else {
+            lock.lock(); let g = cache[path]?.generation ?? 0; lock.unlock()
+            return Look(account: account, stamp: before, generation: g, changed: false)
+        }
         lock.lock(); defer { lock.unlock() }
-        // another thread may have parsed the same file meanwhile: the change is said by whichever kept it first
-        if let hit = cache[path], hit.stamp == before { return Look(account: hit.account, stamp: before, changed: false) }
-        let last = cache[path]
-        cache[path] = (before, account)
-        let changed = last.map { Self.otherSeat($0.account, account) } ?? false
-        return Look(account: account, stamp: before, changed: changed)
+        // another thread may have parsed the same file meanwhile: the change is counted by whichever kept it first
+        if let hit = cache[path], hit.stamp == before {
+            return Look(account: hit.account, stamp: before, generation: hit.generation, changed: false)
+        }
+        guard let last = cache[path] else {
+            cache[path] = (before, account, 0)
+            return Look(account: account, stamp: before, generation: 0, changed: false)
+        }
+        return keep(path, stamp: before, account: account, after: last)
     }
 
-    /// Forgets a record (a folder no longer followed); its next look is a first parse again.
+    /// Keeps a parse (the lock held), counting a change against the last one.
+    private func keep(_ path: String, stamp: RecordStamp, account: SignedInAccount?,
+                      after last: (stamp: RecordStamp, account: SignedInAccount?, generation: Int)) -> Look {
+        let changed = Self.someoneElse(last.account, account)
+        let g = last.generation + (changed ? 1 : 0)
+        cache[path] = (stamp, account, g)
+        return Look(account: account, stamp: stamp, generation: g, changed: changed)
+    }
+
+    /// Forgets a record (a folder no longer followed); its next look is a first parse again, at generation 0.
     public func forget(path: String) { lock.lock(); cache[path] = nil; lock.unlock() }
 
-    static func otherSeat(_ a: SignedInAccount?, _ b: SignedInAccount?) -> Bool {
+    /// The record names someone else: another account or seat by the one comparison, or someone after nobody, nobody
+    /// after someone. A seat that was only not known before (an organisation gained or lost) is the same account.
+    public static func someoneElse(_ a: SignedInAccount?, _ b: SignedInAccount?) -> Bool {
         switch (a, b) {
         case (nil, nil): return false
-        case (let a?, let b?): return a.match(b) != .seat
+        case (let a?, let b?): return a.match(b) == .different
         default: return true
         }
     }
