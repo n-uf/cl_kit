@@ -34,35 +34,24 @@ public struct SignedInAccount: Equatable, Hashable {
     /// Verified (said by the process or by Anthropic) or guessed (read from a file).
     public var source: AccountIdentity.Source { origin == .record ? .guessed : .verified }
 
-    /// It names someone: an account id or an address.
+    /// It names someone: an account id or an address (either is enough to be signed in).
     public var names: Bool { accountID != nil || email != nil }
 
-    /// ProfileCore's identity (organisation by its id), for the rules there. Its `matches` is stricter than this one's
-    /// where only one side names an organisation (there: another account); between sources, use `matches` here.
+    /// ProfileCore's identity (the organisation by its id and its name), where the one seat comparison lives.
     public var identity: AccountIdentity {
-        AccountIdentity(account: accountID, email: email, organization: organizationID, source: source)
+        AccountIdentity(account: accountID, email: email, organization: organizationID, organizationName: organizationName,
+                        source: source)
     }
 
-    /// The same account. By the account ids when both have one (case doesn't count), with the organisations' ids
-    /// (none recorded is the same as an empty one, as ProfileCore's AccountID has it). Else by the address (case doesn't
-    /// count; both must have one) and the organisation: by its id when both have one, else by its name when both have
-    /// one; an organisation only one side names doesn't tell them apart (a running process names its organisation, the
-    /// record has both).
+    /// Maybe the same account: `match` isn't `.different` (the same seat, or the same account whose seat isn't known).
     public func matches(_ o: SignedInAccount) -> Bool { match(o) != .different }
 
-    /// How two accounts compare: `seat` when the ids, or the address and an organisation both name, say they are the
-    /// same seat; `address` when only the address does (an organisation one side doesn't name); else `different`.
-    public enum Match: Equatable { case seat, address, different }
+    /// How two accounts compare: ProfileCore's one seat comparison (AccountIdentity.compare). The account by its ids
+    /// when both have one, else by its address (case doesn't count); then the organisation by its id when both have one,
+    /// else by its name (case doesn't count); one only one side names is `.seatNotKnown`.
+    public typealias Match = SeatMatch
 
-    public func match(_ o: SignedInAccount) -> Match {
-        if let a = accountID, let b = o.accountID {
-            return AccountID.same(a, b) && AccountID.sameOrganization(organizationID, o.organizationID) ? .seat : .different
-        }
-        guard let e = email?.lowercased(), e == o.email?.lowercased() else { return .different }
-        if let x = organizationID, let y = o.organizationID { return AccountID.same(x, y) ? .seat : .different }
-        if let x = organizationName, let y = o.organizationName { return x.lowercased() == y.lowercased() ? .seat : .different }
-        return .address
-    }
+    public func match(_ o: SignedInAccount) -> Match { identity.compare(o.identity) }
 
     // MARK: reading each source (never a token)
 
@@ -95,26 +84,50 @@ public struct SignedInAccount: Equatable, Hashable {
     }
 }
 
-/// The one answer: which account the folder is signed in to, and how sure that is.
+/// The one answer to "which account is Claude Code's on this folder", and how sure that is; and whose numbers a verified
+/// source's are. It answers for Claude Code only: an app with other sign-ins of its own (a desktop window's) asks those
+/// apart and names them apart.
+///
+/// The rule: a verified word (a running claude's own `initialize` account, or Anthropic's reply about the folder's
+/// stored sign-in) beats the record, which is only a guess. Numbers belong to the source that gave them: to the
+/// verified account, never moved to the record's when the two disagree.
 public struct FolderSignIn: Equatable {
     public enum Verdict: String, Equatable {
-        /// A verified source names it, and the record agrees (or has nothing).
+        /// A verified source names it, and the record names the same seat (or nobody).
         case verified
+        /// A verified source names the record's account (the same id or address), but only one of them names an
+        /// organisation, so the seat isn't known (a personal plan and a Team seat share an address). `account` is the
+        /// verified word as it is: no ids, plan or organisation taken from the record, which may be the other seat's.
+        case seatNotKnown
         /// Only the record names it.
         case guessed
-        /// A verified source names another account than the record: Claude Code is between the two writes (a sign-in
-        /// landing), or the record is stale or edited. `account` is the verified one; the record is in `record`.
+        /// A verified source names another account or seat than the record: Claude Code is between the two writes (a
+        /// sign-in landing under a running claude), or the record is stale or edited. `account` is the verified one;
+        /// the record is in `record`.
         case differs
         /// Nobody is named: signed out, or nothing known yet.
         case none
     }
 
     public var verdict: Verdict
-    /// The account the folder is signed in to: the verified one where there is one (with the record's ids and plan added
-    /// when the two are the same seat, not on the address alone), else the record's.
+    /// Claude Code's account on the folder: the verified one where there is one (with the record's ids and plan added
+    /// only when the two are the same seat), else the record's.
     public var account: SignedInAccount?
     public var record: SignedInAccount?
     public var verified: SignedInAccount?
+    /// The account the verified source's numbers belong to: the verified account (also when it differs from the record);
+    /// with a process trail, the record's while a silent process's folder still names the seat it started on. nil: no
+    /// numbers are anyone's (a guess alone owns none).
+    public var numbersAccount: SignedInAccount?
+
+    public init(verdict: Verdict, account: SignedInAccount?, record: SignedInAccount?, verified: SignedInAccount?,
+                numbersAccount: SignedInAccount? = nil) {
+        self.verdict = verdict; self.account = account; self.record = record; self.verified = verified
+        self.numbersAccount = numbersAccount
+    }
+
+    /// Signed in, by D1's rule: someone is named, by an account id or an address.
+    public var isSignedIn: Bool { account?.names ?? false }
 
     /// Is the folder signed in to `a` (by `SignedInAccount.matches`)? False when nobody is named.
     public func isSignedIn(to a: SignedInAccount) -> Bool { account?.matches(a) ?? false }
@@ -126,20 +139,40 @@ public struct FolderSignIn: Equatable {
         switch (r, v) {
         case (nil, nil): return FolderSignIn(verdict: .none, account: nil, record: nil, verified: nil)
         case (let r?, nil): return FolderSignIn(verdict: .guessed, account: r, record: r, verified: nil)
-        case (nil, let v?): return FolderSignIn(verdict: .verified, account: v, record: nil, verified: v)
+        case (nil, let v?): return FolderSignIn(verdict: .verified, account: v, record: nil, verified: v, numbersAccount: v)
         case (let r?, let v?):
-            let m = v.match(r)
-            guard m != .different else { return FolderSignIn(verdict: .differs, account: v, record: r, verified: v) }
-            // the record's ids and plan only when it is the same seat: on the address alone they may be another seat's
-            // (a personal plan and a team seat on one address)
-            guard m == .seat else { return FolderSignIn(verdict: .verified, account: v, record: r, verified: v) }
-            var merged = v
-            merged.accountID = v.accountID ?? r.accountID
-            merged.email = v.email ?? r.email
-            merged.organizationID = v.organizationID ?? r.organizationID
-            merged.organizationName = v.organizationName ?? r.organizationName
-            merged.plan = r.plan ?? v.plan
-            return FolderSignIn(verdict: .verified, account: merged, record: r, verified: v)
+            switch v.match(r) {
+            case .different: return FolderSignIn(verdict: .differs, account: v, record: r, verified: v, numbersAccount: v)
+            // the record's ids and plan only when it is the same seat: otherwise they may be another seat's
+            case .seatNotKnown: return FolderSignIn(verdict: .seatNotKnown, account: v, record: r, verified: v, numbersAccount: v)
+            case .seat:
+                let merged = v.filled(from: r)
+                return FolderSignIn(verdict: .verified, account: merged, record: r, verified: v, numbersAccount: merged)
+            }
         }
+    }
+
+    /// The answer with a running claude's trail (ProcessTrail): its word, with the launch record's ids and organisation id
+    /// when it named the seat the process started on, so an organisation renamed while it runs is still its own. A
+    /// process that said nothing owns its numbers only while the record still names the seat it started on.
+    public static func answer(record: SignedInAccount?, trail: ProcessTrail) -> FolderSignIn {
+        if let word = trail.verified { return answer(record: record, verified: word) }
+        var a = answer(record: record, verified: nil)
+        if let launch = trail.launchedOn, let now = a.record, launch.match(now) == .seat { a.numbersAccount = now }
+        return a
+    }
+}
+
+extension SignedInAccount {
+    /// This account with what it doesn't say taken from `other` (the same seat): ids, address and organisation where
+    /// this one has none, and `other`'s plan (a record's plan is the one Claude Code wrote).
+    func filled(from other: SignedInAccount) -> SignedInAccount {
+        var m = self
+        m.accountID = accountID ?? other.accountID
+        m.email = email ?? other.email
+        m.organizationID = organizationID ?? other.organizationID
+        m.organizationName = organizationName ?? other.organizationName
+        m.plan = other.plan ?? plan
+        return m
     }
 }
