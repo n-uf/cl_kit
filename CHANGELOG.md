@@ -3,7 +3,7 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
-## Unreleased
+## 26.11.4
 
 The account rule, one for both apps (stage 1 of the platform concept, `docs/design/platform-concept.html`; no app changes
 yet).
@@ -30,6 +30,13 @@ yet).
   claude's word (it names its organisation by name) never takes the other seat on its address by the address alone.
 - **ClaudeSignIn** judges a `seatNotKnown` answer as it judged the loose verified one before, except when the account
   wanted names its organisation: then the sign-in is unverified (which seat it landed on isn't known).
+- **A seat may belong to several profiles.** ProfileCore's `StandbyTidy` tidies within one profile, by seat (account id
+  and organisation): only the same seat twice in one profile and the profile's own account in use go, so a seat in use in
+  one profile can stand by in another, and a personal plan and a Team seat on one account id are two entries (was one entry
+  per account id, and another profile's account in use was dropped). An entry whose organisation isn't known joins the
+  account's one seat there, or its record's, adding only a newer last use; the account in use with no organisation known
+  never takes a known seat of its id. `StandbyTidy.merge(_:into:inUse:)` joins entries to a list as the tidy keeps it (a
+  caller adding entries uses it); `StandbyTidy.key` is per seat.
 - **Source breaks** (no app calls these yet):
   - `FolderSignIn.Verdict` has a new case, `seatNotKnown`: a `switch` over it needs the case.
   - `SignedInAccount.Match` is ProfileCore's `SeatMatch`: `.address` is gone, `.seatNotKnown` takes its place.
