@@ -12,7 +12,10 @@ cl_quick links it built without `Keychain.swift`, each from its vendored copy of
 | File | What it holds |
 | --- | --- |
 | `Folder.swift` | `AuthFolder`: the folder's path, default or not (`~/.claude` however spelled), its record (`.claude.json`), its Keychain item names (`Claude Code-credentials`, or `-` and 8 hex of the path's SHA-256), the environment a `claude` run on it gets (no key or other provider; `CLAUDE_CONFIG_DIR` set, or unset for the default folder), and `isReady` (there as a plain folder; never made) |
-| `Identity.swift` | `SignedInAccount` from each source (`record`: guessed; `process`, a running claude's `initialize` account, and `server`, Anthropic's reply about the sign-in: verified), the one matching rule (`matches`), and `FolderSignIn.answer`: `verified`, `guessed`, `differs` or `none` |
+| `Identity.swift` | `SignedInAccount` from each source (`record`: guessed; `process`, a running claude's `initialize` account, and `server`, Anthropic's reply about the sign-in: verified), `match` (ProfileCore's one seat comparison), and `FolderSignIn.answer`, Claude Code's account on the folder: `verified`, `seatNotKnown`, `guessed`, `differs` or `none`, and `numbersAccount`, whose the verified source's numbers are |
+| `Trail.swift` | `ProcessTrail`: a running claude's trail, the record at its launch and its own word; `FolderSignIn.answer(record:trail:)` |
+| `RecordReader.swift` | `FolderRecordReader`: the one `.claude.json` reader (oauthAccount's named fields only, bounded, parsed again only when the stamp moved, a change said once); an instance the app owns |
+| `AccountKey.swift` | `AccountKey`: the saved key (account id, organisation), with its address and name placeholders upgraded in place |
 | `StoredSignIn.swift` | `StoredSignInReader`: the one door to a stored sign-in; ClaudeAuth names no store |
 | `Keychain.swift` | `KeychainSignIn.read`: the item through `/usr/bin/security`, read only, into `Login`'s named fields; `KeychainSignInReader` (the Keychain as the stored sign-in) and `AuthTools.systemWithKeychain`. The only file that touches the Keychain: an app that never reads it (cl_quick) leaves it out of its build |
 | `Watch.swift` | `RecordStamp` and `SignInChangeWatch`: another account signed in to the folder since the last look (signing out isn't a change) |
@@ -35,16 +38,38 @@ cl_quick links it built without `Keychain.swift`, each from its vendored copy of
 
 ## Matching
 
-Two accounts are the same by their account ids when both have one (case doesn't count; no organisation recorded is an
-empty one, as `AccountID` has it). Else by the address (case doesn't count; both must have one) and the organisation:
-its id when both have one, else its name (case doesn't count) when both have one; an organisation only one side names
-doesn't tell them apart (`match` says `.address`, not `.seat`, and the answer then takes no ids or plan from the
-record, which may be another seat's on the same address). A running claude names its organisation by name and no ids;
-the record has both.
+One seat comparison, ProfileCore's `AccountIdentity.compare` (`SignedInAccount.match` asks it). The account first: by
+the account ids when both have one (case doesn't count; never the address then), else by the address (case doesn't
+count; both must have one). Then the organisation: its id when both have one, else its name (case doesn't count) when
+both have one; none on either side is the same. An organisation only one side names (or an id on one side and a name on
+the other) is `.seatNotKnown`: the same account, maybe another seat. A running claude names its organisation by name
+and no ids; the record has both. `matches` here is "not `.different`" (the watch, `isSignedIn(to:)`); ProfileCore's
+`matches` is "`.seat`" (the headline). Renew asks for `.seat`.
 
-This is the rule between sources. ProfileCore's `AccountIdentity.matches` is stricter where only one side names an
-organisation (there: another account) and stays as it is for cl_audit's saved seats; `SignedInAccount.identity` hands
-an account to it. Making them one rule is the open question in `Core/README.md` (one seat comparison).
+## The account rule (decided 2026-11-22)
+
+`FolderSignIn.answer` is Claude Code's account on the folder, one answer for both apps
+([docs/design/platform-concept.html](../docs/design/platform-concept.html), section 4):
+
+- **D1, signed in by an id or an address.** A record, a word or a reply that names an account id or an address is
+  signed in (`isSignedIn`). A saved key still needs the id: `AccountKey` keeps `email:<address>` until the id is known,
+  then is upgraded in place (`upgraded(with:)`).
+- **D2, two seats on one address.** A personal plan and a Team seat share the address and the account id; the
+  organisation tells them apart, so a seat is (account id, organisation) (`AccountKey`). Only one side naming an
+  organisation is `seatNotKnown`: the verified word as it is, no ids, plan or organisation from the record.
+- **D3, a verified word beats the record.** A running claude's own `initialize` account, or Anthropic's reply for the
+  stored sign-in, wins over `.claude.json`, which is only a guess. When they disagree the answer is `differs`, and the
+  numbers are the verified account's (`numbersAccount`), never moved to the record's. With a `ProcessTrail`, the word
+  takes the launch record's ids and organisation id when it names the seat the process started on, so an organisation
+  renamed while it runs keeps its numbers; a process that said nothing owns its numbers only while the record still
+  names the seat it started on (a rewrite for the same seat doesn't count as a change, another seat or a sign-out does).
+- **D4, two names.** The kit answers only Claude Code's account. Another sign-in an app has (cl_audit's Claude window)
+  is that app's own question and name; nothing public here is called plainly "in use" (the auth lint holds it).
+- **D5, organisation names in any case.** The organisation's id decides when both sides have one; else its name, case
+  not counting.
+
+One folder reader, `FolderRecordReader`, reads `.claude.json` for the account (named fields only, bounded, one stat per
+look, parsed again only after a write; `changed` once per change of seat).
 
 ## cl_quick fit
 
@@ -52,16 +77,16 @@ cl_quick never reads the Keychain: it knows the account from the running claude'
 `organization` name: verified) and treats the folder's `.claude.json` as a guess. It builds ClaudeAuth without
 `Keychain.swift` and passes no `StoredSignInReader`; its `ClaudeSignIn.Confirm` is a short claude's `initialize`
 account. What fits as it is:
-`SignedInAccount.process(_:)` takes the `initialize` account, `SignedInAccount.record(_:)` the oauthAccount block
-(cl_quick passes its own `FolderFiles` read through `AuthTools.readRecord`), `FolderSignIn.answer` lets the process's
-word win over the record (`differs` when they disagree), its sign-in script is `SignInScript.lines(..., removesItself:
-true)` with its own marker, and renew and sign-out are there when it wants them. cl_audit adds the Keychain read and
-Anthropic's reply (`server`) as its verified word.
+`SignedInAccount.process(_:)` takes the `initialize` account, `FolderRecordReader` replaces its `FolderFiles`,
+`ProcessTrail` its `AccountTrail` (`launchedOn` as the process starts, `said` on its `initialize` answer,
+`FolderSignIn.answer(record:trail:)` for whose a report is: `numbersAccount`), `AccountKey` its `email:` keys with the
+organisation added, its sign-in script is `SignInScript.lines(..., removesItself: true)` with its own marker, and renew
+and sign-out are there when it wants them. cl_audit adds the Keychain read and Anthropic's reply (`server`) as its
+verified word.
 
-Not yet the same as cl_quick's `AccountTrail.owner`, to settle when cl_quick adopts the module:
-- an organisation renamed while the process runs: `owner` keeps the reports when the organisation's id is the one the
-  process started on; here the names differ, so the answer is `differs` (a "launched on organisation id" input would
-  close it);
-- `owner` compares organisation names exactly, here case doesn't count;
-- a process that said nothing: `owner` takes the folder unchanged since the launch; here the answer is `guessed` (the
-  launch-time record and `SignInChangeWatch` give the same).
+Where the kit's rule differs from cl_quick's `AccountTrail.owner` today, by the decisions above (stage 2 moves it):
+- a report whose process the record no longer names is kept for the process's own account (`numbersAccount`), not
+  dropped; it is never put on the record's account;
+- organisation names are compared in any case (D5), and two seats on one address are two (D2);
+- a word that names another seat than the launch record takes none of its ids, so the launch organisation id keeps a
+  renamed organisation's numbers without ever handing them to another seat.

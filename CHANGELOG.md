@@ -5,6 +5,32 @@ Versions and release).
 
 ## Unreleased
 
+The account rule, one for both apps (stage 1 of the platform concept, `docs/design/platform-concept.html`; no app changes
+yet).
+
+- **One seat comparison.** ProfileCore's `AccountIdentity.compare` (`SeatMatch`: `seat`, `seatNotKnown`, `different`) with
+  the organisation's name beside its id; ClaudeAuth's `SignedInAccount.match` asks it. ProfileCore's `matches` (`.seat`)
+  answers as before. In ClaudeAuth, the same account id with an organisation on one side only is now `seatNotKnown` (was
+  another account), and the same address with no organisation on either side is the same seat (was address only).
+- **Claude Code's account, settled (D1–D5).** `FolderSignIn.answer`: signed in by an id or an address (`isSignedIn`); a new
+  `seatNotKnown` verdict when only one side names an organisation (nothing taken from the record); a verified word over the
+  record, and `numbersAccount`, the account the verified source's numbers belong to, never the record's when they differ.
+- **ProcessTrail**, a running claude's trail (from cl_quick's `AccountTrail`): `FolderSignIn.answer(record:trail:)` keeps the
+  launch organisation id across a rename and trusts a silent process only while the record names the seat it started on;
+  `Authenticator.signIn(trail:)`.
+- **FolderRecordReader**, the one `.claude.json` reader: named fields only, bounded, parsed again only when the stamp moved,
+  a change of seat said once.
+- **AccountKey**, the saved key (account id, organisation): `email:` and `name:` placeholders upgraded in place, never moved
+  onto another account or seat; a text form for larger keys.
+- **ClaudeSignIn** judges a `seatNotKnown` answer as it judged the loose verified one before.
+- **Checks:** the auth suite gains one case per disagreement (D1–D5), the risks (a sign-in under a running claude, personal
+  plus Team on one address, a one-sided organisation, a renamed organisation, a silent process with the record changed), the
+  saved key and the folder reader, and a lint that no public ClaudeAuth name says plainly "in use"; the core suite gains the
+  one seat comparison.
+- **docs/design/**: the platform concept page.
+
+And the status record and the face, into ProfileCore:
+
 - **The status record moves into ProfileCore.** `StatusRecord`, `ResolvedAccount` and `StatusCodec` (with the drawable
   clamp) are cl_audit's status record as it writes it, so every app reads one shape. `StatusAges` gives its age formula,
   and `ProfileDisplay.of` turns a record into the one display value.
