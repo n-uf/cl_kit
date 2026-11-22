@@ -245,6 +245,10 @@ do {
           "D2: ...only when the caller says the numbers' own source named that seat; a seat's key never moves to the other seat")
     check(AccountKey(account: wuID.uppercased(), organization: team.uppercased()) == AccountKey(wuTeam)
           && AccountKey(text: AccountKey(wuTeam)!.text.uppercased()) == AccountKey(wuTeam), "a key as written: case doesn't count")
+    let savedUpper = Data(#"{"account":"\#(wuID.uppercased())","organization":"\#(team.uppercased())"}"#.utf8)
+    check((try? JSONDecoder().decode(AccountKey.self, from: savedUpper)) == AccountKey(wuTeam)
+          && (try? JSONDecoder().decode(AccountKey.self, from: JSONEncoder().encode(placeholder!))) == placeholder,
+          "a saved key read back: in lower case, its round trip unchanged")
     check(AccountKey(account: AccountKey.addressPrefix + "wu@example.com", organization: AccountKey.namePrefix + "example team")
             .upgraded(with: wuTeam) == AccountKey(wuTeam)
           && AccountKey(account: wuID, organization: AccountKey.namePrefix + "example team").upgraded(with: wuPersonal) == nil,

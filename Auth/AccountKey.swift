@@ -23,6 +23,15 @@ public struct AccountKey: Codable, Hashable {
         self.account = account.lowercased(); self.organization = organization?.lowercased()
     }
 
+    private enum CodingKeys: String, CodingKey { case account, organization }
+
+    /// A saved key read back in lower case too (one written by hand, or by an older build, in another case).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(account: try c.decode(String.self, forKey: .account),
+                  organization: try c.decodeIfPresent(String.self, forKey: .organization))
+    }
+
     /// The key of an account as a source names it; nil when it names nobody (no id, no address).
     public init?(_ a: SignedInAccount) {
         guard let account = a.accountID.map(AccountID.normal) ?? a.email.map({ Self.addressPrefix + $0.lowercased() }) else { return nil }
