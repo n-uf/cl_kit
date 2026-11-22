@@ -85,12 +85,15 @@ public struct AccountIdentity: Equatable, Hashable {
     /// `.seatNotKnown`, the same account but maybe another seat (a personal plan and a Team seat share an address and
     /// even an account id; only the organisation tells them apart).
     public func compare(_ o: AccountIdentity) -> SeatMatch {
-        if let a = account, let b = o.account {
-            guard AccountID.same(a, b) else { return .different }
-        } else {
-            guard let e = email?.lowercased(), !e.isEmpty, e == o.email?.lowercased() else { return .different }
+        // every value as it is compared: trimmed, and an empty one is none
+        func named(_ s: String?) -> String? {
+            s.flatMap { let t = $0.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t }
         }
-        func named(_ s: String?) -> String? { s.flatMap { $0.isEmpty ? nil : $0 } }
+        if let a = account, let b = o.account {
+            guard AccountID.same(named(a) ?? a, named(b) ?? b) else { return .different }
+        } else {
+            guard let e = named(email)?.lowercased(), e == named(o.email)?.lowercased() else { return .different }
+        }
         let (x, y) = (named(organization), named(o.organization))
         if let x, let y { return AccountID.same(x, y) ? .seat : .different }
         let (m, n) = (named(organizationName), named(o.organizationName))
@@ -107,11 +110,16 @@ public struct AccountIdentity: Equatable, Hashable {
 
     /// Known by its address only: no account id and no organisation (an address typed, a standby entry remembered by its
     /// address).
-    public var addressOnly: Bool { (account ?? "").isEmpty && (organization ?? "").isEmpty }
+    /// An organisation named by its name only (a running claude's word) is an organisation: such an identity isn't known
+    /// by its address only, so it never matches the other seat on its address by the address alone.
+    public var addressOnly: Bool {
+        (account ?? "").isEmpty && (organization ?? "").isEmpty
+            && (organizationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
-    /// The one owner rule, for every "is this the same account / whose account is it" check: `matches` (the ids in any case
-    /// when both have one, never the address then; else the address, any case, and the organisation), except that one
-    /// side known by its address only is matched by the address (cl_quick's placeholder rule).
+    /// The one owner rule, for every "is this the same account / whose account is it" check: `compare` says `.seat`
+    /// (`matches`), except that one side known by its address only (no id, no organisation by id or name) is matched by
+    /// the address (cl_quick's placeholder rule). It is `compare` with that one exception, not a second comparison.
     public func sameAccount(_ o: AccountIdentity) -> Bool {
         guard addressOnly || o.addressOnly else { return matches(o) }
         guard let e = email?.lowercased(), !e.isEmpty else { return false }
