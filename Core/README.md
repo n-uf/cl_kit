@@ -96,8 +96,11 @@ in step 1, nor in step 2 beyond the widget now following the headline exactly.
   (`AccountList.adding`) stay one entry per account id in any organisation, on purpose. `StandbyTidy` keeps one entry per
   seat (account id and organisation) within each profile, and drops only the profile's own account in use: a seat may
   belong to several profiles, in use in one and standing by in another (decided 2026-11-22). An entry whose organisation
-  isn't known joins the account's one seat in that profile, or the one its record names (`StandbyTidy.key` is per seat;
-  the default-profile move's standby merge compares by it too). `Headline` keeps
+  isn't known joins the account's one seat in that profile, or the one its record names; the profile's own account in
+  use with no organisation known drops only its id's entries with none either, never a known seat of its id. A joining
+  entry whose organisation isn't known adds only a newer last use; the known seat's plan and week stay. A caller that
+  adds entries to a profile's list (the default-profile move) uses `StandbyTidy.merge(_:into:inUse:)`, so the next tidy
+  changes nothing; `StandbyTidy.key` is per seat. `Headline` keeps
   `matches`, deliberately: the two differ only for an identity known by its address only (no id, nil organisation)
   against one with an organisation. `sameAccount` lets the address decide (a typed address, a standby entry remembered
   by its address, is that seat's account); `matches` also asks the organisation, so nil against a seat's organisation is

@@ -151,8 +151,27 @@ do {
     let hinted = StandbyTidy.apply([P(seat: nil, name: "x", standby: [withOrgOld, otherOrg, noOrgNew], accountNote: nil)],
                                    recordOrgs: { [uuid(40): uuid(42).uppercased()] }, now: now).accounts[0].standby
     check(hinted.map(\.id) == ["a", "d"] && hinted[1].lastInUse == noOrgNew.lastInUse, "...and joins the seat its record names")
-    check(merged(noOrgNew, emptyOrgNew).count == 1 && merged(noOrgNew, otherOrg, own: Seat(account: uuid(40))).isEmpty,
-          "two not known are one; the account in use with no organisation is its one seat here")
+    check(merged(noOrgNew, emptyOrgNew).count == 1 && merged(noOrgNew, otherOrg, own: Seat(account: uuid(40))).map(\.id) == ["d"],
+          "two not known are one; the account in use with no organisation drops only its id's entries not known either, never a known seat")
+    check(merged(otherOrg, noOrgNew, own: Seat(account: uuid(40), organization: "")).map(\.id) == ["d"],
+          "...the same with an empty organisation; a known seat of its id (the Team seat) stands by")
+    // one not known joining a known one: the known seat's own plan and week stay, only a newer last use is taken
+    var known = entry("k", org: uuid(41), used: 600); known.plan = "Team"; known.lastWeek = 40; known.lastWeekResets = now
+    var unknownNewer = entry("u", org: nil, used: 60); unknownNewer.plan = "Max"; unknownNewer.lastWeek = 90; unknownNewer.lastWeekResets = nil
+    for pair in [(known, unknownNewer), (unknownNewer, known)] {
+        let one = merged(pair.0, pair.1)
+        check(one.count == 1 && one[0].seat?.organization == uuid(41) && one[0].plan == "Team" && one[0].lastWeek == 40
+              && one[0].lastWeekResets == now && one[0].lastInUse == unknownNewer.lastInUse && one[0].id == pair.0.id,
+              "a seat not known joining the known one (\(pair.0.id) first): the known plan and week, the newest last use, the first entry's id")
+    }
+    // merge(into:): entries joining a profile's list, as the tidy keeps it
+    let into = StandbyTidy.merge([noOrgNew, otherOrg, withOrgOld, sb(5, seat: false)], into: [withOrgOld],
+                                 inUse: Seat(account: uuid(40), organization: uuid(42)))
+    check(into.map(\.id) == ["a", "b", "k5"],
+          "merge: the list's entries first, each seat once, never the account in use; a seat not known with two seats here stays apart (\(into.map(\.id)))")
+    struct Q: StandbyHolder { var seat: Seat?; var name: String; var standby: [StandbyAccount]; var accountNote: AccountNote? }
+    check(!StandbyTidy.apply([Q(seat: Seat(account: uuid(40), organization: uuid(42)), name: "x", standby: into, accountNote: nil)], now: now).changed,
+          "...so the next tidy changes nothing")
     check(StandbyTidy.key(withOrgOld) == uuid(40) + "|" + uuid(41) && StandbyTidy.key(noOrgNew) == uuid(40) + "|"
           && StandbyTidy.key(emptyOrgNew) == StandbyTidy.key(noOrgNew) && StandbyTidy.key(sb(5, seat: false)) == "@s5@example.com",
           "the key: account id and organisation, else the address")
