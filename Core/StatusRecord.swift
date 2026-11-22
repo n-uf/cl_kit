@@ -259,14 +259,19 @@ public enum StatusCodec {
         s.fiveHour = percent(s.fiveHour); s.weekly = percent(s.weekly)
         s.fiveHourResets = time(s.fiveHourResets); s.weeklyResets = time(s.weeklyResets); s.updatedAt = time(s.updatedAt)
         s.scoped = s.scoped?.map { ScopedLimit(name: $0.name, percent: percent($0.percent), resets: time($0.resets)) }
-        // an older record holds "Usage: Claude Code on <account>" as text, an address in it as it was written: only the fact is
-        // kept, and the app builds the sentence when it shows it (so no address reaches a display value's note from here)
-        // (with no name to build it from, the line is dropped: the reader writes the record again with its next read)
-        if var r = s.resolved, r.line?.hasPrefix(ResolvedAccount.usageOnPrefix) == true {
-            r.line = nil; r.codeUsageLine = r.codeName == nil ? nil : true
-            s.resolved = r
-        }
+        s.resolved = s.resolved.map(migrated)
         return s
+    }
+
+    /// An older record holds "Usage: Claude Code on <account>" as text, an address in it as it was written: only the fact is
+    /// kept, and the app builds the sentence when it shows it, so no address reaches a display value's note (with no name to
+    /// build it from, the line is dropped: the reader writes the record again with its next read). `drawable` and
+    /// `ProfileDisplay.of` both apply it, so a record that never went through the codec is migrated too.
+    public static func migrated(_ r: ResolvedAccount) -> ResolvedAccount {
+        guard r.line?.hasPrefix(ResolvedAccount.usageOnPrefix) == true else { return r }
+        var m = r
+        m.line = nil; m.codeUsageLine = r.codeName == nil ? nil : true
+        return m
     }
 
     /// The bytes for a record: sorted keys, dates as seconds since 1970, empty fields left out.
@@ -288,7 +293,7 @@ extension ProfileDisplay {
             return make(Headline.of(Headline.Owner(), signedIn: true, readAt: nil, now: now, ages: ages), read: nil,
                         sign: .ok, inUse: false, ages: ages, now: now)
         }
-        let r = raw.resolved
+        let r = raw.resolved.map(StatusCodec.migrated)
         var d = make(raw.headline(now: now, ages: ages), read: raw.usage(source: source), sign: raw.signIn,
                      otherAccount: raw.mismatch, inUse: raw.inUse, clash: r?.clash.map { Clash(id: r?.clashID, name: $0) },
                      note: r.flatMap(lineText), splitTo: r?.email.flatMap { $0.contains("@") ? $0 : nil }, ages: ages, now: now)
