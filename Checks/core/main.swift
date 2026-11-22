@@ -870,8 +870,9 @@ do {
     let oldLine = ResolvedAccount(account: uuid(1), email: nil, fromApp: true, numbersFor: nil, differs: false, line: sentence, lit: true,
                                   clash: nil, at: t0, codeAccount: uuid(2), codeName: wu)
     let oldRecord = record(login: zed, expected: zed, resolved: oldLine)
-    check(String(describing: ProfileDisplay.of(oldRecord, ages: ages5, source: "reader", now: t0)).contains(wu),
-          "(control: the sentence as an old record stores it does reach the note, the leak the migration closes)")
+    check(oldRecord.resolved?.line?.contains(wu) == true
+          && !String(describing: ProfileDisplay.of(oldRecord, ages: ages5, source: "reader", now: t0)).contains(wu),
+          "an old record that never went through the codec (its sentence holds the address): ProfileDisplay.of migrates it too, no address")
     let migrated = StatusCodec.decode(StatusCodec.encode(oldRecord) ?? Data())
     let migratedText = migrated.map { String(describing: ProfileDisplay.of($0, ages: ages5, source: "reader", now: t0)) } ?? wu
     check(migrated?.resolved?.line == nil && migrated?.resolved?.codeUsageLine == true && migrated?.resolved?.codeName == wu
@@ -912,6 +913,10 @@ do {
                                    "differs", "email", "fromApp", "line", "lit", "numbersFor", "readStale", "recordTooLarge", "splitLine",
                                    "switchWaits"],
           "ResolvedAccount's JSON keys: \(keyList(allResolved))")
+    check(keyList(ScopedLimit(name: "m", percent: 1, resets: t0)) == ["name", "percent", "resets"],
+          "ScopedLimit's JSON keys: \(keyList(ScopedLimit(name: "m", percent: 1, resets: t0)))")
+    let fullCredits = Credits(enabled: true, used: 1, cap: 2, currency: "USD", out: false, spentAt: t0)
+    check(keyList(fullCredits) == ["cap", "currency", "enabled", "out", "spentAt", "used"], "Credits' JSON keys, every one: \(keyList(fullCredits))")
 
     // the ages: the read interval (1 minute to a day), 5 minutes at least, plus a minute; grey after three reads, 30 min at least
     check(StatusAges.freshFor(pollMinutes: 5) == 360 && StatusAges.greyAfter(pollMinutes: 5) == 1800
