@@ -177,47 +177,91 @@ public enum StandbyTidy {
         var out = list
         var orgs: [String: String]?
         var changed = false
-        for i in out.indices {
-            let own = out[i].seat
-            // the seats each account has in this profile, by their known organisations (its standby entries' and its own)
-            var seats: [String: Set<String>] = [:]
-            for s in out[i].standby.map(\.seat) + [own] {
-                if let s, let o = org(s) { seats[AccountID.normal(s.account), default: []].insert(o) }
+        withoutActuallyEscaping(recordOrgs) { recordOrgs in
+            // asked once for all the profiles, and only when needed
+            let asked: () -> [String: String] = {
+                if orgs == nil { orgs = recordOrgs() }
+                return orgs ?? [:]
             }
-            // a seat's key in this profile: an organisation not known joins the account's one seat here, or its record's
-            func key(_ seat: Seat) -> String {
-                let a = AccountID.normal(seat.account)
-                if let o = org(seat) { return a + "|" + o }
-                let known = seats[a] ?? []
-                if known.count == 1 { return a + "|" + known.first! }
-                if known.count > 1 {
-                    if orgs == nil { orgs = recordOrgs() }
-                    if let r = orgs?[a].flatMap({ $0.isEmpty ? nil : AccountID.normal($0) }), known.contains(r) { return a + "|" + r }
+            for i in out.indices {
+                let kept = tidied(out[i].standby, inUse: out[i].seat, recordOrgs: asked)
+                if kept != out[i].standby {
+                    out[i].standby = kept
+                    out[i].accountNote = AccountNote(kind: .tidied, email: "", profile: out[i].name, at: now)
+                    changed = true
                 }
-                return a + "|"
-            }
-            let ownKey = own.map(key)
-            var kept: [StandbyAccount] = []
-            var at: [String: Int] = [:]
-            for s in out[i].standby {
-                let k = s.seat.map(key) ?? "@" + s.email.lowercased()
-                if k == ownKey { continue }                                     // the profile's own account in use
-                guard let n = at[k] else { at[k] = kept.count; kept.append(s); continue }
-                // the same seat twice: one stays, with the newest last use; a known organisation is never swapped for none
-                var one = kept[n]
-                let newer = (s.lastInUse ?? .distantPast) > (one.lastInUse ?? .distantPast)
-                if org(s.seat) != nil, org(one.seat) == nil || newer { one.seat = s.seat }
-                else if org(s.seat) == nil, org(one.seat) == nil, newer { one.seat = s.seat }
-                if newer { one.lastInUse = s.lastInUse; one.lastWeek = s.lastWeek; one.lastWeekResets = s.lastWeekResets; one.plan = s.plan ?? one.plan }
-                if one.email.isEmpty { one.email = s.email }
-                kept[n] = one
-            }
-            if kept != out[i].standby {
-                out[i].standby = kept
-                out[i].accountNote = AccountNote(kind: .tidied, email: "", profile: out[i].name, at: now)
-                changed = true
             }
         }
         return (out, changed)
+    }
+
+    /// `list` with `incoming` entries joined to it, as the tidy keeps one profile's list: each seat once (the list's own
+    /// entries first, in their order), never `inUse` (the profile's account in use). Every caller that adds standby
+    /// entries to a profile (a profile's accounts moving to another) uses it, so the next tidy changes nothing.
+    public static func merge(_ incoming: [StandbyAccount], into list: [StandbyAccount], inUse: Seat?,
+                             recordOrgs: () -> [String: String] = { [:] }) -> [StandbyAccount] {
+        tidied(list + incoming, inUse: inUse, recordOrgs: recordOrgs)
+    }
+
+    /// One profile's standby list tidied: one entry per seat, never the account in use.
+    static func tidied(_ standby: [StandbyAccount], inUse own: Seat?, recordOrgs: () -> [String: String]) -> [StandbyAccount] {
+        var orgs: [String: String]?
+        let ownAccount = own.map { AccountID.normal($0.account) }, ownOrg = org(own)
+        // the seats each account has in this profile, by their known organisations (its standby entries' and its own)
+        var seats: [String: Set<String>] = [:]
+        for s in standby.map(\.seat) + [own] {
+            if let s, let o = org(s) { seats[AccountID.normal(s.account), default: []].insert(o) }
+        }
+        // a seat's key in this profile: an organisation not known joins the account's one seat here, or its record's
+        func key(_ seat: Seat) -> String {
+            let a = AccountID.normal(seat.account)
+            if let o = org(seat) { return a + "|" + o }
+            let known = seats[a] ?? []
+            if known.count == 1 { return a + "|" + known.first! }
+            if known.count > 1 {
+                if orgs == nil { orgs = recordOrgs() }
+                if let r = orgs?[a].flatMap({ $0.isEmpty ? nil : AccountID.normal($0) }), known.contains(r) { return a + "|" + r }
+            }
+            return a + "|"
+        }
+        var kept: [StandbyAccount] = []
+        var at: [String: Int] = [:]
+        for s in standby {
+            // the profile's own account in use: its seat; with its organisation not known, only the entries of its id whose
+            // organisation isn't known either (it never takes a known seat of its id for its own)
+            if let seat = s.seat, let a = ownAccount, AccountID.normal(seat.account) == a {
+                if let o = ownOrg { if key(seat) == a + "|" + o { continue } }
+                else if org(seat) == nil { continue }
+            }
+            let k = s.seat.map(key) ?? "@" + s.email.lowercased()
+            guard let n = at[k] else { at[k] = kept.count; kept.append(s); continue }
+            kept[n] = joined(kept[n], s)
+        }
+        return kept
+    }
+
+    /// Two entries of one seat as one. Alike (both with a known organisation, or both without): the newer one's seat,
+    /// last use, week and plan. One not known joining a known one: the known entry's seat, plan and week stay (they are
+    /// that seat's own), and only a newer last use is taken.
+    static func joined(_ one: StandbyAccount, _ s: StandbyAccount) -> StandbyAccount {
+        var out = one
+        let newer = (s.lastInUse ?? .distantPast) > (one.lastInUse ?? .distantPast)
+        switch (org(one.seat) != nil, org(s.seat) != nil) {
+        case (true, false):
+            if newer { out.lastInUse = s.lastInUse }
+        case (false, true):
+            // the known one's own values, in the place (and under the id) of the entry it joins
+            out = s
+            out.id = one.id
+            if !newer { out.lastInUse = one.lastInUse ?? s.lastInUse }
+            if out.addedAt == nil { out.addedAt = one.addedAt }
+        default:
+            if newer {
+                out.seat = s.seat; out.lastInUse = s.lastInUse; out.lastWeek = s.lastWeek; out.lastWeekResets = s.lastWeekResets
+                out.plan = s.plan ?? one.plan
+            }
+        }
+        if out.email.isEmpty { out.email = one.email.isEmpty ? s.email : one.email }
+        return out
     }
 }
