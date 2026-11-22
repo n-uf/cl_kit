@@ -279,8 +279,11 @@ public enum StatusCodec {
 extension ProfileDisplay {
     /// The one display value for a profile's record (nil: no record yet), with its `ages` (StatusAges) at `now`. `source`
     /// names where numbers came from when the record doesn't (the caller's words). A record from before the account answer
-    /// has no line for an unconfirmed owner.
-    public static func of(_ record: StatusRecord?, ages: Headline.Ages, source: String, now: Date = Date()) -> ProfileDisplay {
+    /// has no line for an unconfirmed owner. `lineText` says the account answer's one line (the note) in the app's words: by
+    /// default the record's own `line`; an app that builds the sentence from `codeUsageLine` or `splitLine` passes its builder,
+    /// since the record holds the fact and never the sentence.
+    public static func of(_ record: StatusRecord?, ages: Headline.Ages, source: String, now: Date = Date(),
+                          lineText: (ResolvedAccount) -> String? = { $0.line }) -> ProfileDisplay {
         guard let raw = record?.current(now: now) else {
             return make(Headline.of(Headline.Owner(), signedIn: true, readAt: nil, now: now, ages: ages), read: nil,
                         sign: .ok, inUse: false, ages: ages, now: now)
@@ -288,7 +291,7 @@ extension ProfileDisplay {
         let r = raw.resolved
         var d = make(raw.headline(now: now, ages: ages), read: raw.usage(source: source), sign: raw.signIn,
                      otherAccount: raw.mismatch, inUse: raw.inUse, clash: r?.clash.map { Clash(id: r?.clashID, name: $0) },
-                     note: r?.line, splitTo: r?.email.flatMap { $0.contains("@") ? $0 : nil }, ages: ages, now: now)
+                     note: r.flatMap(lineText), splitTo: r?.email.flatMap { $0.contains("@") ? $0 : nil }, ages: ages, now: now)
         if r == nil, d.line == .unconfirmed { d.line = nil }
         return d
     }
