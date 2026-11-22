@@ -114,32 +114,48 @@ do {
     check(read?.id == "k9" && read?.addedAt == nil && read?.lastInUse == nil && read?.lastWeek == nil, "a crafted standby entry: its dates and week dropped")
     let keys = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(light)) as? [String: Any])?.keys.sorted()
     check(keys == ["addedAt", "email", "id", "lastWeek", "seat"], "StandbyAccount's JSON keys stay its own: \(keys ?? [])")
-    // the tidy list: one entry per account, never an account in use
+    // the tidy list: within one profile, one entry per seat, never the profile's own account in use
     struct P: StandbyHolder { var seat: Seat?; var name: String; var standby: [StandbyAccount]; var accountNote: AccountNote? }
     var dup = light; dup.id = "kd"; dup.seat?.account = uuid(12).uppercased(); dup.lastInUse = now
     let inUseElsewhere = sb(7)
-    let profiles = [P(seat: Seat(account: uuid(1)), name: "Main", standby: [light, dup, inUseElsewhere], accountNote: nil),
-                    P(seat: Seat(account: uuid(17)), name: "Work", standby: [], accountNote: nil)]
+    var ownInUse = sb(11); ownInUse.seat = Seat(account: uuid(1).uppercased(), organization: uuid(51))
+    let profiles = [P(seat: Seat(account: uuid(1), organization: uuid(51)), name: "Main", standby: [light, dup, inUseElsewhere, ownInUse],
+                      accountNote: nil),
+                    P(seat: Seat(account: uuid(17), organization: uuid(67)), name: "Work", standby: [], accountNote: nil)]
     let tidy = StandbyTidy.apply(profiles, now: now)
-    check(tidy.changed && tidy.accounts[0].standby.map(\.id) == ["k2"] && tidy.accounts[0].accountNote?.kind == .tidied
-          && tidy.accounts[0].standby[0].lastInUse == now, "tidied: one entry per account (any case), not another profile's in use; the newest last use kept")
+    check(tidy.changed && tidy.accounts[0].standby.map(\.id) == ["k2", "k7"] && tidy.accounts[0].accountNote?.kind == .tidied
+          && tidy.accounts[0].standby[0].lastInUse == now && tidy.accounts[1].accountNote == nil,
+          "tidied: one seat twice (any case) is one entry with the newest last use, the profile's own account in use goes")
+    check(tidy.accounts[0].standby.contains { $0.id == "k7" },
+          "a seat in use in Work stands by in Main: a seat may belong to several profiles, only twice in one is tidied")
     check(!StandbyTidy.apply([P(seat: nil, name: "x", standby: [light, heavy], accountNote: nil)], now: now).changed, "a tidy list stays as it is")
-    // two entries of one account, one with an organisation and one without: the merge never swaps the known one for none
-    // (no record organisation, nil == nil), whichever is newer; a newer one with another organisation still wins
-    func merged(_ a: StandbyAccount, _ b: StandbyAccount, orgs: [String: String] = [:]) -> Seat? {
-        StandbyTidy.apply([P(seat: nil, name: "x", standby: [a, b], accountNote: nil)], recordOrgs: { orgs }, now: now).accounts[0].standby.first?.seat
+    func merged(_ a: StandbyAccount, _ b: StandbyAccount, own: Seat? = nil, orgs: [String: String] = [:]) -> [StandbyAccount] {
+        StandbyTidy.apply([P(seat: own, name: "x", standby: [a, b], accountNote: nil)], recordOrgs: { orgs }, now: now).accounts[0].standby
     }
     func entry(_ id: String, org: String?, used: TimeInterval) -> StandbyAccount {
         StandbyAccount(email: "m@example.com", seat: Seat(account: uuid(40), organization: org, email: "m@example.com"), id: id,
                        lastInUse: now.addingTimeInterval(-used))
     }
+    // a personal plan and a Team seat on one account id: two seats, both stay
     let withOrgOld = entry("a", org: uuid(41), used: 600), noOrgNew = entry("b", org: nil, used: 60), emptyOrgNew = entry("c", org: "", used: 60)
-    check(merged(withOrgOld, noOrgNew)?.organization == uuid(41) && merged(withOrgOld, emptyOrgNew)?.organization == uuid(41)
-          && merged(noOrgNew, withOrgOld)?.organization == uuid(41),
-          "a newer entry with no organisation (nil or \"\") never takes the place of a known one; an older known one replaces none")
-    check(merged(withOrgOld, entry("d", org: uuid(42), used: 60))?.organization == uuid(42)
-          && merged(entry("e", org: uuid(42), used: 60), withOrgOld, orgs: [uuid(40): uuid(41)])?.organization == uuid(41),
-          "a newer one with another organisation still wins; the record's organisation wins over any")
+    let otherOrg = entry("d", org: uuid(42), used: 60)
+    check(merged(withOrgOld, otherOrg).map(\.id) == ["a", "d"], "one account id in two organisations: two seats, both kept")
+    check(merged(withOrgOld, otherOrg, own: Seat(account: uuid(40), organization: uuid(42))).map(\.id) == ["a"],
+          "the other seat of the account in use stands by; the seat in use itself doesn't")
+    // an entry whose organisation isn't known joins the account's one seat here, never swapping the known one for none
+    check(merged(withOrgOld, noOrgNew).map(\.seat?.organization) == [uuid(41)] && merged(withOrgOld, emptyOrgNew).map(\.seat?.organization) == [uuid(41)]
+          && merged(noOrgNew, withOrgOld).map(\.seat?.organization) == [uuid(41)] && merged(noOrgNew, withOrgOld).first?.lastInUse == noOrgNew.lastInUse,
+          "a seat not known joins the one known seat (nil or \"\"), keeping the known organisation and the newest last use")
+    let three = StandbyTidy.apply([P(seat: nil, name: "x", standby: [withOrgOld, otherOrg, noOrgNew], accountNote: nil)], now: now).accounts[0].standby
+    check(three.map(\.id) == ["a", "d", "b"], "with two seats and no record to say which, a seat not known stays apart")
+    let hinted = StandbyTidy.apply([P(seat: nil, name: "x", standby: [withOrgOld, otherOrg, noOrgNew], accountNote: nil)],
+                                   recordOrgs: { [uuid(40): uuid(42).uppercased()] }, now: now).accounts[0].standby
+    check(hinted.map(\.id) == ["a", "d"] && hinted[1].lastInUse == noOrgNew.lastInUse, "...and joins the seat its record names")
+    check(merged(noOrgNew, emptyOrgNew).count == 1 && merged(noOrgNew, otherOrg, own: Seat(account: uuid(40))).isEmpty,
+          "two not known are one; the account in use with no organisation is its one seat here")
+    check(StandbyTidy.key(withOrgOld) == uuid(40) + "|" + uuid(41) && StandbyTidy.key(noOrgNew) == uuid(40) + "|"
+          && StandbyTidy.key(emptyOrgNew) == StandbyTidy.key(noOrgNew) && StandbyTidy.key(sb(5, seat: false)) == "@s5@example.com",
+          "the key: account id and organisation, else the address")
 }
 
 // ============ 3. limits: fresh, full, the blocker, the countdown face ============

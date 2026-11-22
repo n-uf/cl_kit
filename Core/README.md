@@ -91,8 +91,11 @@ in step 1, nor in step 2 beyond the widget now following the headline exactly.
   is the address-only rule for a reading known by its address. `Seat("ABC", nil)` and `Seat("abc", "")` are one account
   now; no saved data changes. `Seat.same` and `SeatID.same` stay exact for what isn't an owner check: change detection
   (a profile's seat changed, the sign-in changed since asked) and a switch's receipts and keys. The found accounts
-  (`AccountList.adding`) and `StandbyTidy` stay one entry per account id in any organisation, on purpose (`StandbyTidy.key`;
-  the default-profile move's standby merge compares by it too, so the next tidy changes nothing). `Headline` keeps
+  (`AccountList.adding`) stay one entry per account id in any organisation, on purpose. `StandbyTidy` keeps one entry per
+  seat (account id and organisation) within each profile, and drops only the profile's own account in use: a seat may
+  belong to several profiles, in use in one and standing by in another (decided 2026-11-22). An entry whose organisation
+  isn't known joins the account's one seat in that profile, or the one its record names (`StandbyTidy.key` is per seat;
+  the default-profile move's standby merge compares by it too). `Headline` keeps
   `matches`, deliberately: the two differ only for an identity known by its address only (no id, nil organisation)
   against one with an organisation. `sameAccount` lets the address decide (a typed address, a standby entry remembered
   by its address, is that seat's account); `matches` also asks the organisation, so nil against a seat's organisation is
