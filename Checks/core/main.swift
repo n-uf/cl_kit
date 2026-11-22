@@ -849,6 +849,70 @@ do {
           && StatusCodec.drawable(record(five: 1000), now: t0).fiveHour == 1000,
           "drawable: a percent outside 0–1,000 or a time over 100 years away is left out; 1,000 % kept")
 
+    // the line as a fact: the record keeps `codeUsageLine` and `splitLine`, never the sentence; they round-trip, and a record
+    // from before them decodes with them empty
+    let wu = "wu@example.com", zed = "zedekiah@example.com"
+    var facts = ResolvedAccount(account: uuid(1), email: zed, fromApp: true, numbersFor: wu, differs: true, line: nil, lit: true,
+                                clash: nil, at: t0, codeAccount: uuid(2), codeName: wu)
+    facts.codeUsageLine = true; facts.splitLine = true
+    let factRecord = record(login: wu, expected: wu, resolved: facts)
+    let factBack = StatusCodec.decode(StatusCodec.encode(factRecord) ?? Data())
+    check(factBack == factRecord && factBack?.resolved?.codeUsageLine == true && factBack?.resolved?.splitLine == true
+          && factBack?.resolved?.line == nil, "the new fields round-trip (codeUsageLine, splitLine), the sentence kept nowhere")
+    let beforeFacts = StatusCodec.decode(Data(#"{"state":"ok","resolved":{"fromApp":true,"differs":false,"lit":true,"at":1800000000}}"#.utf8))
+    check(beforeFacts?.resolved?.codeUsageLine == nil && beforeFacts?.resolved?.splitLine == nil && beforeFacts?.resolved?.lit == true,
+          "a record from before the new fields decodes with them empty")
+
+    // an old record carries the sentence "Usage: Claude Code on <address>" in `line`: once read, no address reaches the display
+    // value or its note, only the fact is kept
+    let ages5 = StatusAges.of(pollMinutes: 5)
+    let sentence = ResolvedAccount.usageOnPrefix + wu
+    let oldLine = ResolvedAccount(account: uuid(1), email: nil, fromApp: true, numbersFor: nil, differs: false, line: sentence, lit: true,
+                                  clash: nil, at: t0, codeAccount: uuid(2), codeName: wu)
+    let oldRecord = record(login: zed, expected: zed, resolved: oldLine)
+    check(String(describing: ProfileDisplay.of(oldRecord, ages: ages5, source: "reader", now: t0)).contains(wu),
+          "(control: the sentence as an old record stores it does reach the note, the leak the migration closes)")
+    let migrated = StatusCodec.decode(StatusCodec.encode(oldRecord) ?? Data())
+    let migratedText = migrated.map { String(describing: ProfileDisplay.of($0, ages: ages5, source: "reader", now: t0)) } ?? wu
+    check(migrated?.resolved?.line == nil && migrated?.resolved?.codeUsageLine == true && migrated?.resolved?.codeName == wu
+          && !migratedText.contains(wu) && !migratedText.contains(ResolvedAccount.usageOnPrefix)
+          && StatusCodec.drawable(oldRecord, now: t0).resolved?.line == nil,
+          "an old record's sentence: after decode and drawable, no address in the display value or its note; the fact kept")
+    // no name to build the sentence from: the line is dropped and no fact is claimed; any other line stays as it is
+    var nameless = oldLine; nameless.codeName = nil
+    var other = oldLine; other.line = "Another line"
+    check(StatusCodec.drawable(record(resolved: nameless), now: t0).resolved.map { $0.line == nil && $0.codeUsageLine == nil } == true
+          && StatusCodec.drawable(record(resolved: other), now: t0).resolved?.line == "Another line"
+          && StatusCodec.drawable(record(resolved: other), now: t0).resolved?.codeUsageLine == nil,
+          "an old sentence with no account name is dropped (no fact claimed); another line is left alone")
+    // the app's builder says the fact in its words (the kit stays wordless)
+    let built = ProfileDisplay.of(StatusCodec.drawable(oldRecord, now: t0), ages: ages5, source: "reader", now: t0,
+                                  lineText: { $0.codeUsageLine == true ? "built for \($0.codeName ?? "-")" : $0.line })
+    check(String(describing: built).contains("built for \(wu)"), "ProfileDisplay.of: the app's builder says the fact as the note")
+
+    // the JSON keys are the shape every reader and writer shares: the exact list, so a renamed or dropped key is seen at once
+    func keyList<T: Encodable>(_ v: T) -> [String] {
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .secondsSince1970
+        return ((try? JSONSerialization.jsonObject(with: enc.encode(v)) as? [String: Any])?.keys.sorted()) ?? []
+    }
+    var all = StatusRecord(state: "ok")
+    all.loginEmail = wu; all.expectedEmail = wu; all.fiveHour = 1; all.weekly = 2; all.updatedAt = t0; all.renewNote = "n"
+    all.fiveHourResets = t0; all.weeklyResets = t0; all.plan = "p"; all.source = "s"; all.problem = "q"; all.renewing = false
+    all.scoped = [ScopedLimit(name: "m", percent: 1, resets: t0)]; all.credits = Credits(enabled: true, used: 1, cap: 2, currency: "USD", out: false)
+    all.noFiveHour = false; all.resolved = facts; all.numbersOwner = wu; all.numbersAccount = uuid(1); all.numbersOrganization = "o"
+    all.ownerUnconfirmed = false
+    var allResolved = facts
+    allResolved.line = "l"; allResolved.clash = "c"; allResolved.recordTooLarge = false; allResolved.readStale = false
+    allResolved.switchWaits = false; allResolved.clashID = "i"; allResolved.codeOrganization = "o"
+    check(keyList(all) == ["credits", "expectedEmail", "fiveHour", "fiveHourResets", "loginEmail", "noFiveHour", "numbersAccount",
+                           "numbersOrganization", "numbersOwner", "ownerUnconfirmed", "plan", "problem", "renewNote", "renewing", "resolved",
+                           "scoped", "source", "state", "updatedAt", "weekly", "weeklyResets"],
+          "StatusRecord's JSON keys: \(keyList(all))")
+    check(keyList(allResolved) == ["account", "at", "clash", "clashID", "codeAccount", "codeName", "codeOrganization", "codeUsageLine",
+                                   "differs", "email", "fromApp", "line", "lit", "numbersFor", "readStale", "recordTooLarge", "splitLine",
+                                   "switchWaits"],
+          "ResolvedAccount's JSON keys: \(keyList(allResolved))")
+
     // the ages: the read interval (1 minute to a day), 5 minutes at least, plus a minute; grey after three reads, 30 min at least
     check(StatusAges.freshFor(pollMinutes: 5) == 360 && StatusAges.greyAfter(pollMinutes: 5) == 1800
           && StatusAges.freshFor(pollMinutes: 20) == 1260 && StatusAges.greyAfter(pollMinutes: 20) == 3600
