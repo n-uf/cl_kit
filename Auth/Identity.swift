@@ -44,7 +44,8 @@ public struct SignedInAccount: Equatable, Hashable {
     }
 
     /// Maybe the same account: `match` isn't `.different` (the same seat, or the same account whose seat isn't known).
-    public func matches(_ o: SignedInAccount) -> Bool { match(o) != .different }
+    /// Looser than ProfileCore's `AccountIdentity.matches` (the same seat): named apart so the two aren't taken for one.
+    public func maybeSame(_ o: SignedInAccount) -> Bool { match(o) != .different }
 
     /// How two accounts compare: ProfileCore's one seat comparison (AccountIdentity.compare). The account by its ids
     /// when both have one, else by its address (case doesn't count); then the organisation by its id when both have one,
@@ -118,19 +119,19 @@ public struct FolderSignIn: Equatable {
     /// The account the verified source's numbers belong to: the verified account (also when it differs from the record);
     /// with a process trail, the record's while a silent process's folder still names the seat it started on. nil: no
     /// numbers are anyone's (a guess alone owns none).
-    public var numbersAccount: SignedInAccount?
+    public var numbersBelongTo: SignedInAccount?
 
     public init(verdict: Verdict, account: SignedInAccount?, record: SignedInAccount?, verified: SignedInAccount?,
-                numbersAccount: SignedInAccount? = nil) {
+                numbersBelongTo: SignedInAccount? = nil) {
         self.verdict = verdict; self.account = account; self.record = record; self.verified = verified
-        self.numbersAccount = numbersAccount
+        self.numbersBelongTo = numbersBelongTo
     }
 
     /// Signed in, by D1's rule: someone is named, by an account id or an address.
     public var isSignedIn: Bool { account?.names ?? false }
 
-    /// Is the folder signed in to `a` (by `SignedInAccount.matches`)? False when nobody is named.
-    public func isSignedIn(to a: SignedInAccount) -> Bool { account?.matches(a) ?? false }
+    /// Is the folder maybe signed in to `a` (by `SignedInAccount.maybeSame`)? False when nobody is named.
+    public func isSignedIn(to a: SignedInAccount) -> Bool { account?.maybeSame(a) ?? false }
 
     /// The answer from the record (guessed) and a verified word (the process, or Anthropic), either of which may be missing.
     public static func answer(record: SignedInAccount?, verified: SignedInAccount?) -> FolderSignIn {
@@ -139,15 +140,15 @@ public struct FolderSignIn: Equatable {
         switch (r, v) {
         case (nil, nil): return FolderSignIn(verdict: .none, account: nil, record: nil, verified: nil)
         case (let r?, nil): return FolderSignIn(verdict: .guessed, account: r, record: r, verified: nil)
-        case (nil, let v?): return FolderSignIn(verdict: .verified, account: v, record: nil, verified: v, numbersAccount: v)
+        case (nil, let v?): return FolderSignIn(verdict: .verified, account: v, record: nil, verified: v, numbersBelongTo: v)
         case (let r?, let v?):
             switch v.match(r) {
-            case .different: return FolderSignIn(verdict: .differs, account: v, record: r, verified: v, numbersAccount: v)
+            case .different: return FolderSignIn(verdict: .differs, account: v, record: r, verified: v, numbersBelongTo: v)
             // the record's ids and plan only when it is the same seat: otherwise they may be another seat's
-            case .seatNotKnown: return FolderSignIn(verdict: .seatNotKnown, account: v, record: r, verified: v, numbersAccount: v)
+            case .seatNotKnown: return FolderSignIn(verdict: .seatNotKnown, account: v, record: r, verified: v, numbersBelongTo: v)
             case .seat:
                 let merged = v.filled(from: r)
-                return FolderSignIn(verdict: .verified, account: merged, record: r, verified: v, numbersAccount: merged)
+                return FolderSignIn(verdict: .verified, account: merged, record: r, verified: v, numbersBelongTo: merged)
             }
         }
     }
@@ -158,7 +159,7 @@ public struct FolderSignIn: Equatable {
     public static func answer(record: SignedInAccount?, trail: ProcessTrail) -> FolderSignIn {
         if let word = trail.verified { return answer(record: record, verified: word) }
         var a = answer(record: record, verified: nil)
-        if let launch = trail.launchedOn, let now = a.record, launch.match(now) == .seat { a.numbersAccount = now }
+        if let launch = trail.launchedOn, let now = a.record, launch.match(now) == .seat { a.numbersBelongTo = now }
         return a
     }
 }
