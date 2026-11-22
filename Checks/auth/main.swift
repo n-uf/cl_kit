@@ -152,15 +152,16 @@ do {
     check(SignedInAccount(accountID: uuid(3), organizationID: "", origin: .server).organizationID == nil
           && SignedInAccount(accountID: uuid(3), organizationID: " ", origin: .server).matches(SignedInAccount(accountID: uuid(3), origin: .record)),
           "an empty organisation is kept as none, and none on both sides is the same")
-    check(!SignedInAccount(accountID: uuid(3), origin: .server).matches(SignedInAccount(accountID: uuid(3), organizationID: uuid(51), origin: .record)),
-          "both with ids: an organisation only one side has is another seat (ProfileCore's AccountID)")
+    check(SignedInAccount(accountID: uuid(3), origin: .server).match(SignedInAccount(accountID: uuid(3), organizationID: uuid(51), origin: .record)) == .seatNotKnown,
+          "both with ids: an organisation only one side has is the same account, its seat not known (the one comparison)")
     check(SignedInAccount(email: " ann@example.com\n", origin: .process).email == "ann@example.com"
           && SignedInAccount(email: "ann@example.com ", origin: .process).matches(r!), "values are kept trimmed")
-    check(p!.match(r!) == .seat && SignedInAccount(email: "ann@example.com", origin: .process).match(r!) == .address
-          && bobWord().match(r!) == .different, "match: seat, address only, different")
+    check(p!.match(r!) == .seat && SignedInAccount(email: "ann@example.com", origin: .process).match(r!) == .seatNotKnown
+          && bobWord().match(r!) == .different, "match: seat, seat not known, different")
     check(!SignedInAccount(email: "ann@example.com", organizationID: uuid(52), organizationName: "Example Org", origin: .server).matches(r!),
           "by address: the organisations' ids when both have one, before their names")
-    check(r!.identity == AccountIdentity(account: uuid(1), email: "ann@example.com", organization: uuid(51), source: .guessed),
+    check(r!.identity == AccountIdentity(account: uuid(1), email: "ann@example.com", organization: uuid(51), organizationName: "Example Org",
+                                         source: .guessed),
           "ProfileCore's identity from it")
 
     // the one answer
@@ -177,13 +178,200 @@ do {
     check(differs.verdict == .differs && differs.account == bob && differs.record == r,
           "the process names another account than the record: differs, the process's word is the account")
     let loose = FolderSignIn.answer(record: r, verified: SignedInAccount(email: "ann@example.com", origin: .process))
-    check(loose.verdict == .verified && loose.account?.accountID == nil && loose.account?.organizationID == nil && loose.account?.plan == nil
-          && loose.record == r, "the same address but no organisation to compare: verified, without the record's ids or plan (maybe another seat's)")
+    check(loose.verdict == .seatNotKnown && loose.account?.accountID == nil && loose.account?.organizationID == nil && loose.account?.plan == nil
+          && loose.record == r, "the same address but no organisation to compare: seat not known, without the record's ids or plan (maybe another seat's)")
     let alone = FolderSignIn.answer(record: nil, verified: s)
     check(alone.verdict == .verified && alone.account == s, "a verified word with no record: verified")
     check(FolderSignIn.answer(record: nil, verified: r).verdict == .none, "a record passed as the verified word is never taken for one")
     check(agreed.isSignedIn(to: SignedInAccount(accountID: uuid(1), organizationID: uuid(51), origin: .record))
           && !none.isSignedIn(to: r!), "isSignedIn(to:)")
+}
+
+// ============ 4b. the account rule, settled: one case per disagreement (D1-D5) and per risk ============
+// Samples: wu@example.com with a personal plan and a Team seat (one address, one account id, two organisations), and
+// zedekiah@example.com. Ids are zero-pattern; nothing real is read.
+do {
+    let wuID = uuid(101), zedID = uuid(102), personal = uuid(151), team = uuid(152)
+    let wuPersonal = SignedInAccount(accountID: wuID, email: "wu@example.com", organizationID: personal,
+                                     organizationName: "Wu Personal", plan: "Max", origin: .record)
+    let wuTeam = SignedInAccount(accountID: wuID, email: "wu@example.com", organizationID: team,
+                                 organizationName: "Example Team", plan: "Team", origin: .record)
+    let zed = SignedInAccount(accountID: zedID, email: "zedekiah@example.com", organizationID: uuid(153),
+                              organizationName: "Zed Org", plan: "Pro", origin: .record)
+    /// A running claude's `initialize` account, as it says it (an address and maybe its organisation's name; no ids).
+    func word(_ email: String, _ org: String?) -> SignedInAccount {
+        var a: [String: Any] = ["email": email]
+        if let org { a["organization"] = org }
+        return SignedInAccount.process(a)!
+    }
+
+    // D1 · signed in when the id OR the address names someone
+    let idOnly = SignedInAccount.record(["accountUuid": wuID, "organizationUuid": personal])
+    let addressOnly = SignedInAccount.record(["emailAddress": "wu@example.com"])
+    check(FolderSignIn.answer(record: idOnly, verified: nil).isSignedIn && FolderSignIn.answer(record: addressOnly, verified: nil).isSignedIn,
+          "D1: a record with an account id alone, or an address alone, is signed in")
+    check(FolderSignIn.answer(record: nil, verified: word("wu@example.com", nil)).isSignedIn,
+          "D1: a running claude's word alone (an address, no id) is signed in")
+    check(!FolderSignIn.answer(record: SignedInAccount.record(["planDisplayName": "Max"]), verified: nil).isSignedIn,
+          "D1: a record that names nobody is signed out")
+    let placeholder = AccountKey(addressOnly!)
+    check(placeholder?.account == "email:wu@example.com" && placeholder?.isPlaceholder == true && placeholder?.seatKnown == false,
+          "D1: a saved key with no id yet: the address stands in, seat not known")
+    let upgraded = placeholder?.upgraded(with: wuTeam)
+    check(upgraded == AccountKey(account: wuID, organization: team) && upgraded?.isPlaceholder == false,
+          "D1: the placeholder is upgraded in place once the id appears (and the seat when first seen)")
+    check(placeholder?.upgraded(with: zed) == nil, "D1: never upgraded with another account's id")
+    check(AccountKey(SignedInAccount(accountID: wuID.uppercased(), email: "WU@example.com", origin: .record))?.account == wuID,
+          "D1: a key's id in its normal form")
+
+    // D2 · a personal plan and a Team seat on one address are two seats
+    check(wuPersonal.match(wuTeam) == .different && !wuPersonal.identity.matches(wuTeam.identity),
+          "D2: one address, one account id, two organisations: two seats (both comparisons are one)")
+    check(AccountKey(wuPersonal) != AccountKey(wuTeam) && AccountKey(wuTeam)?.text == wuID + "|" + team,
+          "D2: two saved keys, (account id, organisation)")
+    let teamWord = FolderSignIn.answer(record: wuPersonal, verified: word("wu@example.com", "Example Team"))
+    check(teamWord.verdict == .differs && teamWord.account?.organizationID == nil && teamWord.account?.plan == nil
+          && teamWord.numbersAccount?.organizationName == "Example Team" && teamWord.numbersAccount?.organizationID != personal,
+          "D2: the process on the Team seat, the record on the personal plan: differs, the numbers the Team seat's, nothing of the personal plan's")
+    let noOrg = FolderSignIn.answer(record: wuTeam, verified: word("wu@example.com", nil))
+    check(noOrg.verdict == .seatNotKnown && noOrg.account?.accountID == nil && noOrg.account?.organizationID == nil
+          && noOrg.account?.plan == nil && noOrg.numbersAccount == noOrg.verified,
+          "D2: only one side names an organisation: same address, seat not known, no plan or ids borrowed from the record")
+    check(AccountKey(account: wuID).upgraded(with: wuTeam) == AccountKey(wuTeam)
+          && AccountKey(wuPersonal)?.upgraded(with: wuTeam) == nil,
+          "D2: a key with no seat is upgraded when the organisation is first seen; a seat's key never moves to the other seat")
+    check(AccountKey(account: AccountKey.addressPrefix + "wu@example.com", organization: AccountKey.namePrefix + "example team")
+            .upgraded(with: wuTeam) == AccountKey(wuTeam)
+          && AccountKey(account: wuID, organization: AccountKey.namePrefix + "example team").upgraded(with: wuPersonal) == nil,
+          "D2: a name placeholder becomes the organisation's id for the same seat, never for the other")
+    check(AccountKey(text: AccountKey(wuTeam)!.text) == AccountKey(wuTeam) && AccountKey(text: placeholder!.text) == placeholder
+          && AccountKey(text: AccountKey(account: "email:a|b%c@example.com", organization: "name:x|y").text)
+             == AccountKey(account: "email:a|b%c@example.com", organization: "name:x|y")
+          && AccountKey(text: "") == nil && AccountKey(text: "a|b|c") == nil, "D2: a key's text reads back, '|' and '%' escaped")
+
+    // D3 · a verified word beats the record, and the numbers stay with it
+    let landed = FolderSignIn.answer(record: zed, verified: word("wu@example.com", "Wu Personal"))
+    check(landed.verdict == .differs && landed.account?.email == "wu@example.com" && landed.record == zed
+          && landed.numbersAccount?.email == "wu@example.com" && landed.numbersAccount?.accountID != zedID,
+          "D3: the process says wu, the record zedekiah: differs, the numbers wu's, never moved to zedekiah")
+    let serverReply = try! JSONSerialization.data(withJSONObject: ["account": ["uuid": wuID, "email_address": "wu@example.com"],
+                                                                   "organization": ["uuid": personal, "name": "Wu Personal"]])
+    let server = SignedInAccount.server(serverReply)
+    check(FolderSignIn.answer(record: wuTeam, verified: server).verdict == .differs
+          && FolderSignIn.answer(record: wuTeam, verified: server).numbersAccount?.organizationID == personal,
+          "D3: Anthropic's reply for the stored sign-in is the same kind of verified word: it beats the record")
+    let agreed = FolderSignIn.answer(record: wuPersonal, verified: server)
+    check(agreed.verdict == .verified && agreed.numbersAccount?.plan == "Max" && agreed.numbersAccount?.organizationID == personal,
+          "D3: the verified word and the record on one seat: verified, the record's plan added")
+    check(FolderSignIn.answer(record: wuPersonal, verified: nil).numbersAccount == nil,
+          "D3: the record alone is a guess: no numbers are its")
+
+    // D4 · the kit answers Claude Code's account only, and calls nothing plainly "in use" (the lint in 9 holds the names)
+    check(FolderSignIn.answer(record: wuPersonal, verified: nil).account == wuPersonal, "D4: Claude Code's account is the folder's")
+
+    // D5 · the organisation's id decides when both have one; else its name, case not counting
+    check(FolderSignIn.answer(record: wuTeam, verified: word("WU@example.com", "EXAMPLE TEAM")).verdict == .verified,
+          "D5: the name in another case is the same organisation")
+    let renamedByID = SignedInAccount(accountID: wuID, organizationID: team, organizationName: "Another Name", origin: .server)
+    check(renamedByID.match(wuTeam) == .seat, "D5: the ids agree: the names don't count")
+    check(SignedInAccount(accountID: wuID, organizationID: personal, organizationName: "Example Team", origin: .server).match(wuTeam) == .different,
+          "D5: the ids differ: the same name doesn't make them one")
+
+    // risk · a sign-in under a running claude: the file names the new account before the process stops
+    var chat = ProcessTrail(launchedOn: wuPersonal)
+    chat.said(word("wu@example.com", "Wu Personal"))
+    check(chat.verified?.accountID == wuID && chat.verified?.organizationID == personal && chat.verified?.origin == .process,
+          "risk: the word on the seat it started on takes the launch record's ids and organisation id")
+    let under = FolderSignIn.answer(record: zed, trail: chat)
+    check(under.verdict == .differs && under.numbersAccount?.accountID == wuID && under.numbersAccount?.organizationID == personal,
+          "risk: a sign-in to zedekiah under a running claude on wu: differs, the numbers wu's (with its ids), never zedekiah's")
+    check(FolderSignIn.answer(record: wuTeam, trail: chat).verdict == .differs
+          && FolderSignIn.answer(record: wuTeam, trail: chat).numbersAccount?.organizationID == personal,
+          "risk: a switch to the Team seat on the same address under it: differs, the numbers stay the personal plan's")
+
+    // risk · personal plus Team on one address, the process started just after a sign-in landed
+    var early = ProcessTrail(launchedOn: wuPersonal)
+    early.said(word("wu@example.com", "Example Team"))
+    check(early.verified?.accountID == nil && early.verified?.organizationID == nil && early.verified?.plan == nil,
+          "risk: a word on another seat than the launch record takes nothing from it")
+    check(FolderSignIn.answer(record: wuTeam, trail: early).verdict == .verified
+          && FolderSignIn.answer(record: wuTeam, trail: early).numbersAccount?.organizationID == team,
+          "risk: ...and once the record names the Team seat, the two agree on it")
+
+    // risk · one-sided organisation: same address, seat not known, nothing borrowed
+    var unnamed = ProcessTrail(launchedOn: wuTeam)
+    unnamed.said(word("wu@example.com", nil))
+    let oneSided = FolderSignIn.answer(record: wuTeam, trail: unnamed)
+    check(oneSided.verdict == .seatNotKnown && oneSided.numbersAccount?.organizationID == nil && oneSided.numbersAccount?.plan == nil,
+          "risk: a word with no organisation against a Team seat's record: seat not known, no plan or ids taken")
+    check(AccountKey(oneSided.numbersAccount!)?.seatKnown == false, "risk: ...its numbers keyed as a seat not known, never onto both seats")
+
+    // risk · an organisation renamed while the process runs keeps its numbers
+    var renamed = ProcessTrail(launchedOn: wuTeam)
+    renamed.said(word("wu@example.com", "Example Team"))
+    var wuTeamRenamed = wuTeam; wuTeamRenamed.organizationName = "Example Team Renamed"
+    check(FolderSignIn.answer(record: wuTeamRenamed, trail: renamed).verdict == .verified
+          && FolderSignIn.answer(record: wuTeamRenamed, trail: renamed).numbersAccount?.organizationID == team,
+          "risk: renamed while it runs: the launch organisation id says it is the same seat, the numbers stay")
+    check(FolderSignIn.answer(record: wuTeamRenamed, verified: word("wu@example.com", "Example Team")).verdict == .differs,
+          "risk: ...which the word alone, without its trail, can't tell")
+
+    // risk · a process that said nothing is trusted only while the record names the seat it started on
+    var silent = ProcessTrail(launchedOn: wuPersonal)
+    silent.said(SignedInAccount.process(["apiProvider": "firstParty"]))
+    silent.said(wuPersonal)
+    check(silent.word == nil && silent.verified == nil, "risk: a word naming nobody, or a record passed for one, isn't a word")
+    var rewritten = wuPersonal; rewritten.plan = "Max 20x"
+    let unchanged = FolderSignIn.answer(record: rewritten, trail: silent)
+    check(unchanged.verdict == .guessed && unchanged.numbersAccount == rewritten,
+          "risk: silent, the record rewritten for the same seat: its numbers the record's")
+    let moved = FolderSignIn.answer(record: zed, trail: silent)
+    check(moved.verdict == .guessed && moved.account == zed && moved.numbersAccount == nil,
+          "risk: silent, the record changed to zedekiah since its launch: its numbers are no one's")
+    check(FolderSignIn.answer(record: wuTeam, trail: silent).numbersAccount == nil && FolderSignIn.answer(record: nil, trail: silent).numbersAccount == nil
+          && FolderSignIn.answer(record: wuPersonal, trail: ProcessTrail(launchedOn: nil)).numbersAccount == nil,
+          "risk: ...nor after a switch to the other seat, a sign-out, or with nobody named at its launch")
+}
+
+// ============ 4c. the one folder reader ============
+do {
+    mkdir(home + "/.claude-reader")
+    let folder = AuthFolder(path: "~/.claude-reader", home: home)
+    var parses = 0
+    let reader = FolderRecordReader(parse: { parses += 1; return RecordFile.oauthAccount($0) })
+    check(reader.look(folder) == FolderRecordReader.Look(account: nil, stamp: .none, changed: false) && parses == 0,
+          "no record: nobody, nothing parsed")
+    record(folder.recordPath, email: "wu@example.com", account: uuid(101), org: uuid(151), orgName: "Wu Personal", plan: "Max")
+    var l = reader.look(folder)
+    check(l.account?.accountID == uuid(101) && l.account?.organizationName == "Wu Personal" && !l.changed && parses == 1,
+          "the first parse: the record's named fields, no change")
+    check(!reader.look(folder).changed && parses == 1, "an unchanged stamp: not parsed again")
+    usleep(20_000)
+    record(folder.recordPath, email: "wu@example.com", account: uuid(101), org: uuid(151), orgName: "Wu Personal", plan: "Max 20x")
+    l = reader.look(folder)
+    check(!l.changed && l.account?.plan == "Max 20x" && parses == 2, "rewritten for the same seat: parsed, no change")
+    usleep(20_000)
+    record(folder.recordPath, email: "wu@example.com", account: uuid(101), org: uuid(152), orgName: "Example Team")
+    check(reader.look(folder).changed && !reader.look(folder).changed, "the other seat on the same address: a change, said once")
+    usleep(20_000)
+    record(folder.recordPath, email: nil, account: nil, org: nil)
+    l = reader.look(folder)
+    check(l.changed && l.account == nil, "signed out: a change, nobody named")
+    reader.forget(path: folder.recordPath)
+    usleep(20_000)
+    record(folder.recordPath, email: "zedekiah@example.com", account: uuid(102), org: uuid(153))
+    check(!reader.look(folder).changed, "forgotten: the next look is a first parse")
+    // a parse a write overtook is never kept
+    var tick = 0
+    let racing = FolderRecordReader(parse: { _ in parses += 1; return ["emailAddress": "wu@example.com"] },
+                                    stamp: { _ in tick += 1; return RecordStamp(size: UInt64(tick)) })
+    parses = 0
+    _ = racing.look(path: "/nowhere"); _ = racing.look(path: "/nowhere")
+    check(parses == 2, "the stamp moved while it read: not kept, parsed again next look")
+    check(mkfifo(home + "/.claude-reader/fifo.json", 0o600) == 0, "a FIFO made")
+    let t = Date()
+    check(FolderRecordReader().look(path: home + "/.claude-reader/fifo.json").account == nil && Date().timeIntervalSince(t) < 2,
+          "a FIFO: nobody, at once")
 }
 
 // ============ 5. the Keychain item: read with a fake `security` ============
@@ -262,7 +450,10 @@ do {
     record(folder.recordPath, email: "bob@example.com", account: uuid(2).uppercased(), org: uuid(51))
     check(!look(), "the same id in another case: no change")
     check(auth.signIn().verdict == .guessed && auth.signIn().account?.email == "bob@example.com", "the answer from the record: guessed")
-    check(auth.signIn(verified: SignedInAccount.process(["email": "bob@example.com"])).verdict == .verified, "...verified with the process's word")
+    check(auth.signIn(verified: SignedInAccount.process(["email": "bob@example.com"])).verdict == .seatNotKnown,
+          "...with a process's word that names no organisation (the record names one): seat not known")
+    check(auth.signIn(verified: SignedInAccount(email: "bob@example.com", organizationID: uuid(51), origin: .server)).verdict == .verified,
+          "...verified with a word on the same seat")
 }
 
 // ============ 7. the runs: renew, sign-out, sign-in, and their guards ============
@@ -435,6 +626,12 @@ do {
                   "\(f): its only use of the preferences is Terminal's own domain (com.apple.Terminal)")
         } else {
             check(defaults == 0, "\(f): keeps nothing in the preferences (UserDefaults)")
+        }
+        // D4: the kit answers "Claude Code's account" and calls nothing plainly "in use" in its names (that word is for an
+        // app's own question, the one its rows tick)
+        for line in s.split(separator: "\n") where line.trimmingCharacters(in: .whitespaces).hasPrefix("public ") {
+            let decl = line.replacingOccurrences(of: #"\(.*"#, with: "", options: .regularExpression)
+            check(!decl.lowercased().contains("inuse"), "\(f): no public name says plainly \"in use\": \(line)")
         }
         // the Keychain read is Keychain.swift's alone (an app that never reads it leaves that file out and still builds)
         if f != "Keychain.swift" {
