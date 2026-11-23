@@ -12,11 +12,18 @@
 #
 #   AddressPrivacy  Privacy/*.swift  Foundation, AppKit, CoreImage, Combine, SwiftUI: an account address hidden on screen
 #
+# and on top of ProfileCore and AddressPrivacy (it imports those two only; nothing of ours imports it):
+#
+#   MenuRows     MenuRows/*.swift   Foundation, AppKit: one account row of a menu, its usage line from ProfileCore's display
+#
 #   kit_build OUT keychain|no-keychain [swiftc flags...]   builds the three into OUT (-O, -Onone, -enable-testing are the caller's)
 #   kit_link OUT                                           prints the flags that link them, one per line
 #   kit_build_privacy OUT [swiftc flags...]                builds AddressPrivacy into OUT
 #   kit_privacy_link OUT                                   prints the flags that link it (with its frameworks), one per line
-#   kit_sources Core|Run|Auth|Privacy [left-out names...]  prints a module's source files, one per line
+#   kit_build_menurows OUT [swiftc flags...]               builds MenuRows into OUT, which must already hold ProfileCore and
+#                                                          AddressPrivacy (kit_build, kit_build_privacy into the same OUT)
+#   kit_menurows_link OUT                                  prints the flags that link it (after the two it needs), one per line
+#   kit_sources Core|Run|Auth|Privacy|MenuRows [left-out names...]  prints a module's source files, one per line
 #
 # Every module: Swift 5 language mode, macOS 13, arm64. Needs $kit_root only if this file isn't in <kit>/scripts/.
 
@@ -73,3 +80,17 @@ kit_build_privacy() {
 kit_privacy_link() {
   printf '%s\n' -I "$1" -L "$1" -lAddressPrivacy -framework AppKit -framework SwiftUI -framework CoreImage -framework Combine
 }
+
+kit_build_menurows() {
+  local out="$1"; shift
+  local srcs=() f
+  [ -f "$out/ProfileCore.swiftmodule" ] || [ -d "$out/ProfileCore.swiftmodule" ] || { echo "kit_build_menurows: no ProfileCore in $out (kit_build first)" >&2; return 1; }
+  [ -f "$out/AddressPrivacy.swiftmodule" ] || [ -d "$out/AddressPrivacy.swiftmodule" ] || { echo "kit_build_menurows: no AddressPrivacy in $out (kit_build_privacy first)" >&2; return 1; }
+  while IFS= read -r f; do srcs+=("$f"); done < <(kit_sources MenuRows)
+  rm -f "$out"/libMenuRows.a
+  swiftc -swift-version 5 -parse-as-library -target "$kit_target" "$@" -module-name MenuRows -I "$out" \
+    -emit-module -emit-module-path "$out/MenuRows.swiftmodule" -emit-library -static -o "$out/libMenuRows.a" \
+    "${srcs[@]}" || return 1
+}
+
+kit_menurows_link() { printf '%s\n' -I "$1" -L "$1" -lMenuRows; }
