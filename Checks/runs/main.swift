@@ -347,6 +347,23 @@ do {
           && env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == nil
           && ClaudeEnvironment.make(base, configDir: nil, traceless: true)["CLAUDE_CODE_AGENTS_MD_ROWS_EVERY_PROCESS"] == "1",
           "non-essential traffic off; traceless only when asked")
+    let mtls = ["CLAUDE_CODE_CERT_STORE", "CLAUDE_CODE_CLIENT_CERT", "CLAUDE_CODE_CLIENT_KEY", "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE"]
+    var corporate = base
+    for k in mtls { corporate[k] = "/etc/sample/" + k.lowercased() }
+    check(mtls.allSatisfy { ClaudeEnvironment.make(corporate, configDir: nil)[$0] == "/etc/sample/" + $0.lowercased() },
+          "a company's certificate store and client certificate (mTLS, a TLS-inspecting proxy) are passed")
+    check(ClaudeEnvironment.make(["PATH": "bin:./x:/usr/sbin::"], claude: "/claude", configDir: nil)["PATH"]
+            == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin"
+          && ClaudeEnvironment.make([:], claude: "claude", configDir: nil)["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+          "PATH: absolute entries only (no relative or empty one), never \"/\" for a claude at the root, nor a relative claude's folder")
+    check(ClaudeFinder.lookupEnvironment([:], path: "/opt/sample/bin")["PATH"] == "/opt/sample/bin:/usr/bin:/bin"
+          && ClaudeFinder.lookupEnvironment(["PATH": "rel::/sbin"], path: "/opt/sample/bin")["PATH"] == "/opt/sample/bin:/usr/bin:/bin:/sbin"
+          && ClaudeFinder.lookupEnvironment(["ANTHROPIC_API_KEY": "made-up"], path: nil)["ANTHROPIC_API_KEY"] == nil,
+          "the finder's programs: no trailing \":\" without a PATH, absolute entries only, no provider variable")
+    // a finder program's output is taken only whole: one cut at the cap (1 MB) is no answer
+    check(ClaudeFinder.output("/bin/sh", ["-c", "echo /opt/sample/bin/claude"], environment: [:], timeout: 5) == "/opt/sample/bin/claude"
+          && ClaudeFinder.output("/bin/sh", ["-c", "head -c 1200000 /dev/zero | tr '\\0' a"], environment: ["PATH": "/usr/bin:/bin"], timeout: 10) == nil,
+          "the finder's output: taken when whole, never when cut at the cap")
 }
 
 // ============ 4g. the short ask, with a stand-in claude (a shell script that answers its control requests) ============
@@ -366,6 +383,7 @@ do {
     let answering = standIn("claude-answers", """
         printf '%s\\n' "$*" > '\(seen)'
         pwd >> '\(seen)'
+        printf 'traceless=%s,%s\\n' "$CLAUDE_CODE_AGENTS_MD_ROWS_EVERY_PROCESS" "$CLAUDE_CODE_DISABLE_AUTO_MEMORY" >> '\(seen)'
         echo '{"type":"system","subtype":"init"}'
         while IFS= read -r line; do
           printf '%s\\n' "$line" >> '\(seen)'
@@ -375,7 +393,8 @@ do {
           esac
         done
         """)
-    let env = ClaudeEnvironment.make(["HOME": home, "PATH": "/usr/bin:/bin"], claude: answering, configDir: home + "/.claude-work", traceless: true)
+    // (made without the traceless pair: the ask adds it itself)
+    let env = ClaudeEnvironment.make(["HOME": home, "PATH": "/usr/bin:/bin"], claude: answering, configDir: home + "/.claude-work")
     let a = ClaudeAsk.ask(claude: answering, environment: env, folder: work, usage: true, timeout: 10)
     check(a.end == .answered && a.account == ["email": "wu@example.com", "organization": "Example Team"], "initialize's account: \(a)")
     check(a.limits?.available == true && a.limits?.fiveHour?.used == 100 && a.limits?.fiveHour?.locked == false
@@ -387,6 +406,7 @@ do {
           && sent.contains(#""subtype":"initialize""#) && sent.contains(#""subtype":"get_usage""#) && !sent.contains(#""type":"user""#),
           "the ask's arguments, the two control requests, and never a model message: \(sent)")
     check(sent.contains(work), "it runs in the folder given")
+    check(sent.contains("traceless=1,1"), "always traceless, whatever the environment passed: no marker, no memory folder in the profile")
     let one = ClaudeAsk.ask(claude: answering, environment: env, folder: work, usage: false, timeout: 10)
     check(one.end == .answered && one.account?["email"] == "wu@example.com" && one.limits == nil
           && !((try? String(contentsOfFile: seen, encoding: .utf8)) ?? "").contains("get_usage"), "initialize only: no get_usage asked")
@@ -419,6 +439,8 @@ do {
     check(ClaudeAsk.ask(claude: home + "/no-such-claude", environment: env, folder: work, usage: true).end == .couldNotStart
           && ClaudeAsk.ask(claude: answering, environment: env, folder: home + "/no-such-folder", usage: true).end == .couldNotStart
           && !fm.fileExists(atPath: home + "/no-such-folder"), "no claude, or no folder (never made): couldn't start")
+    check(ClaudeAsk.ask(claude: answering, environment: env, folder: answering, usage: true).end == .couldNotStart,
+          "a file given as the folder: couldn't start")
     // the parse alone
     check(ClaudeAsk.event(Data(#"{"type":"control_response","response":{"subtype":"success","request_id":"ask-1","response":{"account":{"email":" wu@example.com ","organization":""}}}}"#.utf8))
             == .account(["email": "wu@example.com"])
@@ -426,6 +448,10 @@ do {
           && ClaudeAsk.event(Data("not json".utf8)) == .ignored
           && ClaudeAsk.limits(["rate_limits": NSNull()]).available == false,
           "the parse: an account trimmed, an empty organisation left out; another request's answer and other lines ignored")
+    check(ClaudeAsk.event(Data(#"{"type":"control_response","response":{"subtype":"success","request_id":"ask-1","response":{}}}"#.utf8)) == .ignored
+          && ClaudeAsk.event(Data(#"{"type":"control_response","response":{"subtype":"success","request_id":"ask-1","response":{"models":[]}}}"#.utf8)) == .account([:])
+          && ClaudeAsk.event(Data(#"{"type":"control_response","response":{"subtype":"success","request_id":"ask-1","response":{"account":{"email":"wu@example.com"}}}}"#.utf8)) == .account(["email": "wu@example.com"]),
+          "initialize with neither models nor an account: ignored (not \"names nobody\"); models alone: names nobody; an account alone counts")
     check(ClaudeAsk.isoDate("2026-11-12T18:00:00+01:00") != nil && ClaudeAsk.isoDate("2026-11-12T18:00:00.5Z") == ClaudeAsk.isoDate("2026-11-12T18:00:00Z")
           && ClaudeAsk.isoDate("soon") == nil, "ISO dates: an offset, a fraction dropped, words never")
     check(String(decoding: ClaudeAsk.controlLine(id: "ask-1", subtype: "initialize"), as: UTF8.self)
