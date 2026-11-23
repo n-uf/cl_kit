@@ -193,6 +193,33 @@ do {
     var threw = false
     do { try bad.start() } catch { threw = true }
     check(threw && !bad.isRunning && !bad.write(Data("x".utf8)), "one that can't start: start throws, writes fail")
+    // closeInput: its input alone (cat ends at the end of its input), idempotent, no write after it, stop still safe
+    let c = Seen()
+    let cr = RunningProgram(Program("/bin/cat", timeout: .infinity))
+    cr.onExit = { st, sig in c.lock.lock(); c.exit = (st, sig); c.lock.unlock() }
+    var terminated: (Int32, Bool)?
+    let tlock = NSLock()
+    cr.onTermination = { st, sig in tlock.lock(); terminated = (st, sig); tlock.unlock() }
+    try? cr.start()
+    check(cr.write(Data("x\n".utf8)), "written to before its input closes")
+    cr.closeInput(); cr.closeInput()
+    check(!cr.write(Data("y\n".utf8)), "closeInput twice: no crash; a write after it: false")
+    until { c.lock.lock(); defer { c.lock.unlock() }; return c.exit != nil }
+    c.lock.lock(); let cex = c.exit; c.lock.unlock()
+    tlock.lock(); let tex = terminated; tlock.unlock()
+    check(cex?.0 == 0 && cex?.1 == false && tex?.0 == 0 && !cr.isRunning, "its input closed: it ended by itself (0), onTermination too")
+    cr.stop(grace: 0.2)
+    check(!cr.isRunning, "stop after it ended: nothing, no crash")
+    // onTermination comes as the process ends, even while something it started holds its output open
+    let held = RunningProgram(Program("/bin/sh", ["-c", "sleep 3 & exit 4"], timeout: .infinity))
+    var heldEnd: (Int32, Bool)?, heldOutputEnded = false
+    let hlock = NSLock()
+    held.onTermination = { st, sig in hlock.lock(); heldEnd = (st, sig); hlock.unlock() }
+    held.onOutput = { d in if d == nil { hlock.lock(); heldOutputEnded = true; hlock.unlock() } }
+    try? held.start()
+    until({ hlock.lock(); defer { hlock.unlock() }; return heldEnd != nil }, 2)
+    hlock.lock(); let he = heldEnd, hoe = heldOutputEnded; hlock.unlock()
+    check(he?.0 == 4 && !hoe, "onTermination: the process's end (4) before its output ends (a child still holds it)")
 }
 
 // ============ 4d. a process group of its own (ownGroup): stopped as a group, nothing of it outlives the run ============
