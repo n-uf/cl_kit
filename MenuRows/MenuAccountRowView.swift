@@ -48,7 +48,10 @@ public final class MenuAccountRowView: NSView {
     /// The address line: as tall as the blurred stand-in's picture (the text and the blur's reach above and below), so the
     /// blur is never cut.
     public static let addressLineH: CGFloat = textH(font) + 2 * AddressInk.blurPad
-    /// The second line (usage or note): its text's height, set under the address with a small gap.
+    /// Where the second line (usage or note) starts: right under the address's text (the blur's reach below it is only
+    /// a faint edge, so the line may start there).
+    public static let secondLineTop: CGFloat = addressLineH - AddressInk.blurPad
+    /// The second line's height, with a little room below it.
     public static let secondLineH: CGFloat = textH(smallFont) + 3
 
     static func textH(_ f: NSFont) -> CGFloat { ceil(("Ag" as NSString).size(withAttributes: [.font: f]).height) }
@@ -104,7 +107,7 @@ public final class MenuAccountRowView: NSView {
     /// The room of the address: the stand-in's while hidden, whatever the address (its own width while shown).
     public var room: CGFloat { ink.room(for: row.address, blur: blurred) }
     /// One line, or two with a usage line or a note.
-    public var height: CGFloat { Self.addressLineH + (secondLine == nil ? 0 : Self.secondLineH - AddressInk.blurPad + 2) }
+    public var height: CGFloat { secondLine == nil ? Self.addressLineH : Self.secondLineTop + Self.secondLineH }
     /// The least width that shows it all: the address line (the address's room, the tag, the hint) or the second line.
     public var naturalWidth: CGFloat {
         let line1 = Self.padX + room + Self.w(row.tag, Self.font) + (row.hint.map { Self.hintGap + Self.w($0, Self.font) } ?? 0) + Self.padX
@@ -117,7 +120,9 @@ public final class MenuAccountRowView: NSView {
     // MARK: lit and sharp
 
     /// Lit by the menu (the pointer or the arrow keys are on it, or drawn so for a picture); a dimmed row never is.
-    public var lit: Bool { row.enabled && (highlighted || enclosingMenuItem?.isHighlighted == true) }
+    public var lit: Bool { row.enabled && (highlighted || (menuLit ?? (enclosingMenuItem?.isHighlighted == true))) }
+    /// A check's stand-in for the menu's highlight (nil: the item's own): lit as by the arrow keys, the pointer elsewhere.
+    var menuLit: Bool? { didSet { needsDisplay = true } }
     /// The address is drawn readable: lit with the pointer on it (or lit for a picture), or addresses aren't hidden.
     public var sharp: Bool { (lit && (pointerOn || highlighted)) || !blurred }
     /// The address text drawn now: its own while sharp, else the stand-in (never any part of the address).
@@ -196,7 +201,7 @@ public final class MenuAccountRowView: NSView {
         }
         // the second line: the usage line's parts in their levels' colours (grey when old), its full limit, or the note
         guard secondLine != nil else { return }
-        let y = Self.addressLineH - AddressInk.blurPad + 1, f = Self.smallFont
+        let y = Self.secondLineTop, f = Self.smallFont
         if let u = row.usage {
             if let full = u.full {
                 put(full, f, on ? text : u.grey ? .tertiaryLabelColor : Self.color(.crimson), x: Self.padX, y: y)
