@@ -54,6 +54,11 @@ in step 1, nor in step 2 beyond the widget now following the headline exactly.
   use with Claude Code's when the agent reads (address first, as it always has) and writes the answer into the record;
   the headline takes that as `Owner.differs`, and it uses `matches` itself for the label against the reading.
   `Seat.same` and `SeatID.same` keep their exact behaviour for their callers.
+- **The split's numbers (26.11.8, opt-in).** By default the split shows no numbers (they are another account's than the
+  one in use). A caller that names the numbers' own account beside them (cl_audit's "<address> · Terminal") sets
+  `Headline.Ages.splitShowsNumbersOwner` (`StatusAges.of(pollMinutes:splitShowsNumbersOwner:)`): the split is still said,
+  and the numbers, plan, level, grey, full and what holds the profile back show by the rules for the numbers' own
+  account. A record's `clash` (an older build's) is decoded only and never hides the split. cl_quick has no split.
 - **Full in two modes, and the age tiers.** cl_quick acts on a full limit only from fresh numbers (under 5 minutes) and
   shows an older, dated full grey as "last known" until its reset. `AtLimit.full(_:resets:readAt:mode:)` has both
   (`.acts(freshFor:)`, `.display`), and the headline's `Ages` carries the tiers as parameters:
