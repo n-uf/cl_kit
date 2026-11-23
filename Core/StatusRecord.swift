@@ -169,7 +169,9 @@ public struct ResolvedAccount: Codable, Equatable {
     public var differs: Bool               // the numbers aren't the active account's
     public var line: String?               // the one line of state, in the app's words, or nil
     public var lit: Bool                   // an account is in use and its numbers may show
-    public var clash: String?              // another profile's name: Claude Code's folder is on its account in use
+    /// An older build's: another profile's name (one profile per account). Decoded only, never used: an account may be
+    /// several profiles' (shared seats), so a record's clash neither hides the split nor changes what shows.
+    public var clash: String?
     public var at: Date
     /// Claude Code's .claude.json is too large to read: its account isn't known (said so, never "signed out").
     public var recordTooLarge: Bool? = nil
@@ -184,7 +186,7 @@ public struct ResolvedAccount: Codable, Equatable {
     /// The split is a switch waiting for the Claude app: the profile's newest switch went to Claude Code's account and the
     /// app is still on the account it left.
     public var switchWaits: Bool? = nil
-    /// The id of the profile `clash` names (names needn't be unique: this one says which); nil in a record from before it.
+    /// An older build's: the id of the profile `clash` named. Decoded only, never used (shared seats).
     public var clashID: String? = nil
     /// Claude Code's folder account's organisation id (lower case), with `codeAccount`: one seat. "": the folder's record
     /// names the seat with no organisation; nil: not known.
@@ -221,7 +223,8 @@ public struct ResolvedAccount: Codable, Equatable {
         let label = numbersFor.flatMap { $0.contains("@") ? identity(nil, $0) : nil }
         return Headline.Owner(inUse: fromApp ? identity(account, email) : nil,
                               signIn: (codeName ?? numbersFor).map { identity(codeAccount, $0) }, reading: reading, label: label,
-                              differs: differs, elsewhere: clash != nil, switchWaits: switchWaits == true,
+                              // shared seats: an older record's clash is decoded only, it never hides the split
+                              differs: differs, elsewhere: false, switchWaits: switchWaits == true,
                               readStale: readStale == true, unconfirmed: unconfirmed)
     }
 }
@@ -297,7 +300,8 @@ extension ProfileDisplay {
         }
         let r = raw.resolved.map(StatusCodec.migrated)
         var d = make(raw.headline(now: now, ages: ages), read: raw.usage(source: source), sign: raw.signIn,
-                     otherAccount: raw.mismatch, inUse: raw.inUse, clash: r?.clash.map { Clash(id: r?.clashID, name: $0) },
+                     // (a record's clash is an older build's, decoded only: no clash is ever shown from it)
+                     otherAccount: raw.mismatch, inUse: raw.inUse, clash: nil,
                      note: r.flatMap(lineText), splitTo: r?.email.flatMap { $0.contains("@") ? $0 : nil }, ages: ages, now: now)
         if r == nil, d.line == .unconfirmed { d.line = nil }
         return d
