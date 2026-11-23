@@ -14,6 +14,9 @@ public final class RunningProgram {
     public var onErrors: (Data) -> Void = { _ in }
     /// Its end, after its output ended (status, ended by a signal), on a background queue.
     public var onExit: (Int32, Bool) -> Void = { _, _ in }
+    /// Its end as the process ends (status, ended by a signal), whether or not its output has ended (something it started
+    /// may still hold its output open), on a background queue. Set before `start`.
+    public var onTermination: (Int32, Bool) -> Void = { _, _ in }
     /// After its output ended, how long to wait for the rest of its errors before `onExit` (they come on their own pipe).
     public var errorsSettle: TimeInterval = 0.05
 
@@ -39,6 +42,8 @@ public final class RunningProgram {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
+        let ended = onTermination
+        process.terminationHandler = { p in ended(p.terminationStatus, p.terminationReason == .uncaughtSignal) }
         try process.run()
         let out = output.fileHandleForReading, err = errors.fileHandleForReading
         // its output to its end, then its exit; read with read(2), which reports a failed read as an error rather than raising
