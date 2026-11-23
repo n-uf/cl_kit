@@ -1169,6 +1169,41 @@ do {
           "...an older record's clash changes nothing there either")
     check(ProfileDisplay.of(record(login: bob, resolved: split), ages: StatusAges.of(pollMinutes: 5), source: "reader", now: t0).usage == nil,
           "off (the default): the split shows no numbers, as before")
+    // with the opt-in and no numbers in the split, the real reason shows (never .split)
+    let namedNone = ProfileDisplay.of(record(five: nil, week: nil, login: bob, resolved: split), ages: named, source: "reader", now: t0)
+    check(namedNone.usage == nil && namedNone.none == .notRead && namedNone.split != nil,
+          "the opt-in on, the split with nothing read: none says not read, not the split")
+    let namedHiddenAges = Headline.Ages(freshFor: 360, hiddenAfter: 3600, splitShowsNumbersOwner: true)
+    let namedHidden = ProfileDisplay.of(record(age: 2 * 3600, login: bob, resolved: split), ages: namedHiddenAges, source: "reader", now: t0)
+    check(namedHidden.usage == nil && namedHidden.none == .hidden, "...and with numbers hidden by age: none says hidden")
+    let namedOldFull = ProfileDisplay.of(record(five: 100, age: 20 * 60, fiveIn: 3 * 3600, login: bob, resolved: split), ages: named, source: "reader", now: t0)
+    check(namedOldFull.usage?.fiveHour == nil && namedOldFull.usage?.weekly == 40 && namedOldFull.full == nil,
+          "...an old full limit left out there, as for the numbers' own account (it can't act)")
+    // dated fulls kept (cl_quick's kind of ages) with the opt-in: past hiddenAfter the dated full and what holds it back show
+    let namedDated = Headline.Ages(freshFor: 300, hiddenAfter: 3600, datedFullStays: true, splitShowsNumbersOwner: true)
+    let namedDatedShown = ProfileDisplay.of(record(five: 100, age: 2 * 3600, fiveIn: 3 * 3600, login: bob, resolved: split), ages: namedDated,
+                                            source: "reader", now: t0)
+    check(namedDatedShown.usage?.fiveHour == 100 && namedDatedShown.usage?.weekly == nil && namedDatedShown.heldBack?.window == .fiveHour
+          && namedDatedShown.full == nil && namedDatedShown.split != nil,
+          "the opt-in with dated fulls: past the hour the dated full still shows in the split, holding it back, never acting")
+    let shownRec = record(five: 100, age: 2 * 3600, fiveIn: 3 * 3600, login: bob, resolved: split)
+    let shownAnswer = shownRec.headline(now: t0, ages: namedDated)
+    check(shownRec.shown(shownAnswer, now: t0).fiveHour == 100 && shownRec.shown(shownAnswer, now: t0).weekly == nil
+          && record(login: bob, resolved: split).shown(record(login: bob, resolved: split).headline(now: t0, ages: StatusAges.of(pollMinutes: 5)), now: t0).weekly == nil,
+          "StatusRecord.shown follows the opt-in (the dated full kept); off, the split drops the numbers")
+    // the opt-in never overrides another reading, an unconfirmed owner, or a sign-in gone; split false stays the sign-in's own
+    let ownerSplit = Headline.Owner(inUse: AccountIdentity(account: uuid(1), email: ann, organization: nil, source: .verified),
+                                    signIn: AccountIdentity(account: uuid(2), email: bob, organization: nil, source: .verified), differs: true)
+    let namedAnswer = Headline.of(ownerSplit, signedIn: true, readAt: t0.addingTimeInterval(-60), now: t0, ages: named)
+    check(namedAnswer.numbers(split: false) && namedAnswer.numbers() && namedAnswer.plan(),
+          "numbers(split: false) as before; with the opt-in numbers() too")
+    var otherOwner = ownerSplit; otherOwner.readStale = true
+    var unsureOwner = ownerSplit; unsureOwner.unconfirmed = true
+    let otherAnswer = Headline.of(otherOwner, signedIn: true, readAt: t0, now: t0, ages: named)
+    let unsureAnswer = Headline.of(unsureOwner, signedIn: true, readAt: t0, now: t0, ages: named)
+    check(!otherAnswer.numbers() && !otherAnswer.plan() && unsureAnswer.split == nil && !unsureAnswer.acts
+          && !Headline.of(ownerSplit, signedIn: false, readAt: t0, now: t0, ages: named).numbers(),
+          "another reading, an unconfirmed owner (no split, never acting) and a sign-in gone still win over the opt-in")
     let out = face(record(state: "noLogin", resolved: own))
     check(out.fiveHour == nil && out.weekly == nil && out.grey, "signed out: no numbers, grey")
     check(face(record(login: bob, expected: ann)).otherAccount, "signed in to another account than the folder names: the warning")
