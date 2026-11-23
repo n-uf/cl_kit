@@ -1,8 +1,46 @@
 // Runs · the environment a `claude` run gets: never a key, a token, another provider, a base URL or extra headers from the
 // caller's own environment (the shell's settings), which would make Claude Code sign in some other way or send its sign-in to
-// another host.
+// another host. `ClaudeEnvironment` is the one allow-list for a run of Claude Code itself; `ProviderEnvironment` the list of
+// what never reaches one (and what the finder's own programs, the login shell and npm, run without).
 
 import Foundation
+
+/// The environment of a `claude` run: an allow-list. Only who and where the user is, the language, and the network's
+/// proxies and certificates come from the caller's environment; nothing else (no key or token, no other provider and its
+/// credentials, no model override, no custom headers, no telemetry export, no Node options). Then the folder, the PATH,
+/// and Claude Code's non-essential traffic off.
+public enum ClaudeEnvironment {
+    /// What is taken from the caller's environment, by name (and every `LC_*`).
+    public static let passed: Set<String> = ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "TERM", "__CF_USER_TEXT_ENCODING",
+                                             "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
+                                             "ALL_PROXY", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]
+
+    /// Claude Code's non-essential traffic off: telemetry, error reports, update checks.
+    public static let quiet = ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1"]
+
+    /// A run that leaves nothing in the folder: Claude Code's built-in AGENTS.md plugin otherwise notes the session's id
+    /// in plugins/store/ (a once-per-session marker), and an auto-memory folder appears in projects/ (checked against Claude
+    /// Code 2.1.318). For a run that keeps no session (the short ask, an incognito chat).
+    public static let traceless = ["CLAUDE_CODE_AGENTS_MD_ROWS_EVERY_PROCESS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"]
+
+    /// The usual install places, after `claude`'s own folder and before the caller's PATH.
+    public static let installPlaces = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+
+    /// The environment for `claude` at `claude` (its folder goes first on the PATH: an npm install needs its `node`; nil:
+    /// not known) on the folder `configDir` (nil: Claude Code's default folder, so CLAUDE_CONFIG_DIR stays unset).
+    /// `traceless`: the run leaves nothing in the folder (`traceless` above).
+    public static func make(_ base: [String: String], claude: String? = nil, configDir: String?, traceless: Bool = false) -> [String: String] {
+        var env = base.filter { passed.contains($0.key) || $0.key.hasPrefix("LC_") }
+        if let configDir { env["CLAUDE_CONFIG_DIR"] = configDir }
+        let own = claude.map { ($0 as NSString).deletingLastPathComponent }.flatMap { $0.isEmpty ? nil : $0 }
+        // never an empty entry (the current folder)
+        let rest = (base["PATH"] ?? "").split(separator: ":").map(String.init)
+        env["PATH"] = ([own].compactMap { $0 } + installPlaces + rest).joined(separator: ":")
+        for (k, v) in quiet { env[k] = v }
+        if traceless { for (k, v) in Self.traceless { env[k] = v } }
+        return env
+    }
+}
 
 public enum ProviderEnvironment {
     /// The variables that would make Claude Code use a key, a token or another provider instead of the folder's claude.ai
