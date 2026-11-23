@@ -1134,6 +1134,16 @@ do {
     check(face(record(five: 100, age: 10 * 60, fiveIn: 3 * 3600, resolved: own)).full == nil, "the same read 10 minutes ago: nothing full")
     let splitFace = face(record(login: bob, resolved: split))
     check(splitFace.fiveHour == nil && splitFace.weekly == nil && splitFace.grey, "a split (the numbers another account's): no numbers on the picture")
+    // an older build's record with a clash (one profile per account, before shared seats): decoded only, the split still shows
+    var clashed = split; clashed.clash = "Home"; clashed.clashID = "home"
+    let clashedRecord = record(login: bob, resolved: clashed)
+    let clashedShown = ProfileDisplay.of(StatusCodec.decode(StatusCodec.encode(clashedRecord) ?? Data()), ages: StatusAges.of(pollMinutes: 5),
+                                         source: "reader", now: t0)
+    check(clashedRecord.resolved?.owner(reading: nil, unconfirmed: false).elsewhere == false
+          && clashedShown.split != nil && clashedShown.clash == nil && clashedShown.usage == nil
+          && StatusCodec.decode(StatusCodec.encode(clashedRecord) ?? Data())?.resolved?.clashID == "home",
+          "an older record's clash: decoded, never used: the split still shows (no clash, no numbers)")
+    check(face(record(login: bob, resolved: clashed)) == splitFace, "...and the picture is the split's, as without the clash")
     let out = face(record(state: "noLogin", resolved: own))
     check(out.fiveHour == nil && out.weekly == nil && out.grey, "signed out: no numbers, grey")
     check(face(record(login: bob, expected: ann)).otherAccount, "signed in to another account than the folder names: the warning")
