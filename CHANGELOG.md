@@ -3,10 +3,10 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
-## Unreleased
+## 26.11.5
 
-ProfileCore takes the usage rules cl_quick still copies (stage 5). No source breaks: every addition is new API or a new
-parameter with a default.
+The usage rules and the runner cl_quick still copies (stage 5 of the platform concept; no app changes yet). ProfileCore: no
+source breaks, every addition is new API or a new parameter with a default.
 
 - **The week-only rule.** `Usage.hasFiveHour(fiveHour:week:refusedOn:heldBack:)`, cl_quick's exact form, and
   `Usage.hasFiveHour(refusal:now:)` from the raw numbers (never `current()`'s; a plan without the window, `noFiveHour`, never
@@ -24,6 +24,24 @@ parameter with a default.
 - **Not taken in this stage** (the reader's rules, where cl_quick still differs): a rate-limit event's `used × 100` clamped
   to 0…100; `get_usage`'s `locked_reason` as a refusal; the refusal lift (cl_quick lifts only when every window given is
   below 100, the kit when the refusing window has room).
+- **One claude finder** (Runs): `ClaudeFinder.find` (the usual places, the login shell, Volta, nvm, npm's prefix, the
+  desktop app's own Mach-O copy last; `quick`: files only), every look a `Lookup` closure; `version(of:)`.
+- **One environment allow-list for a claude run** (Runs): `ClaudeEnvironment.make` (who and where the user is, the
+  language, proxies and certificates, a company's certificate store and client certificate (`CLAUDE_CODE_CERT_STORE`,
+  `CLAUDE_CODE_CLIENT_CERT`, `CLAUDE_CODE_CLIENT_KEY`, `CLAUDE_CODE_CLIENT_KEY_PASSPHRASE`); the folder; claude's own folder
+  first on PATH, absolute entries only (`ClaudeEnvironment.path`); non-essential traffic off; `traceless` when asked).
+  **Behaviour change for renew and sign-out:** `AuthFolder.environment` is now that allow-list (was a deny-list), so they
+  no longer pass on anything else of the caller's environment (`NODE_OPTIONS`, a model override, telemetry export, cloud
+  credentials are dropped), and get the non-essential traffic off.
+- **The short ask** (Runs): `ClaudeAsk.ask`, claude with nothing kept or loaded and always traceless, the `initialize` and
+  `get_usage` control requests, never a model message, a timeout, then stopped; the account as `initialize` says it (an
+  answer with neither models nor an account is ignored) and the two windows. Run so far against stand-in `claude` scripts;
+  its run against a real `claude` comes with cl_quick's move onto it (stage 6).
+- **AccountKey with its address.** `AccountKey.identity(email:)` and `match(_:email:)`: an id key with the address the app
+  saved beside it (from cl_quick's own helper).
+- **Checks:** the core suite gains `heldBack`, the week-only rule and a dated full past the hour; the runs suite gains the
+  finder, the allow-list and the short ask against stand-in `claude` scripts; the auth suite the allow-list's use and the
+  key's address.
 
 ## 26.11.4
 
