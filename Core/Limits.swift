@@ -93,9 +93,10 @@ extension Usage {
         fiveHour != nil || week == nil || refusedOn == .fiveHour || heldBack?.window == .fiveHour
     }
 
-    /// The rule for these numbers, a standing refusal's window, and what holds them back now (AtLimit.heldBack).
+    /// The rule for these numbers, a standing refusal's window, and what holds them back now (AtLimit.heldBack). A plan
+    /// without the window (`noFiveHour`) never shows it.
     public func hasFiveHour(refusal: Refusal? = nil, now: Date = Date()) -> Bool {
-        Usage.hasFiveHour(fiveHour: fiveHour, week: weekly, refusedOn: refusal?.on,
+        !noFiveHour && Usage.hasFiveHour(fiveHour: fiveHour, week: weekly, refusedOn: refusal?.on,
                           heldBack: AtLimit.heldBack(fiveHour: fiveHour, fiveHourResets: fiveHourResets, weekly: weekly,
                                                      weeklyResets: weeklyResets, refusal: refusal, now: now))
     }
@@ -105,7 +106,8 @@ extension Usage {
 
 /// What holds a profile back now: a full limit (FullLimit), or a refusal standing while the numbers show none full. A
 /// refusal's window is the one the numbers leave: the week when only the 5-hour number is known (below 100), the 5-hour
-/// one when only the week is; else the window the refusal named, else `any` (not known which). Data only.
+/// one when only the week is; `any` when both are known (not known which); with neither known, the window the refusal
+/// named, else `any`. Data only.
 public struct HeldBack: Equatable {
     public enum Window: Equatable { case fiveHour, week, any }
     public let window: Window
@@ -189,9 +191,12 @@ public enum AtLimit {
         switch (five != nil, week != nil, r.on) {
         case (true, false, _): window = .week
         case (false, true, _): window = .fiveHour
-        case (_, _, .fiveHour): window = .fiveHour
-        case (_, _, .week): window = .week
-        default: window = .any
+        // both known (both below 100): which one refuses isn't known, whatever the refusal named (cl_quick's rule)
+        case (true, true, _): window = .any
+        // neither known: the window the refusal named, else not known
+        case (false, false, .fiveHour): window = .fiveHour
+        case (false, false, .week): window = .week
+        case (false, false, .unknown): window = .any
         }
         return HeldBack(window: window, resets: r.until, refused: true)
     }
