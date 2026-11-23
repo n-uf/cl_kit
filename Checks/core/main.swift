@@ -233,6 +233,43 @@ do {
     check(Credits.carry(Credits(enabled: true, used: 5, cap: nil, currency: nil, out: false), from: c, now: now)?.spentAt == now, "credits: an amount that went up")
 }
 
+// ============ 3b. what holds a profile back (a full limit, or a standing refusal), and the week-only rule ============
+do {
+    let now = t0, later = t0.addingTimeInterval(3600), past = t0.addingTimeInterval(-60)
+    func held(_ five: Double?, _ week: Double?, refusal: Refusal? = nil, fiveResets: Date? = later, weekResets: Date? = later) -> HeldBack? {
+        AtLimit.heldBack(fiveHour: five, fiveHourResets: fiveResets, weekly: week, weeklyResets: weekResets, refusal: refusal, now: now)
+    }
+    let standing = Refusal(until: later, at: past, on: .unknown)
+    check(held(100, 40) == HeldBack(window: .fiveHour, resets: later, refused: false) && held(100, 40)?.full == FullLimit(kind: .fiveHour, resets: later)
+          && held(100, 100, weekResets: now.addingTimeInterval(7200))?.window == .week && held(100, 100, weekResets: now.addingTimeInterval(7200))?.alsoFull == .fiveHour,
+          "a full limit holds it back (AtLimit.blocker: the one that resets last)")
+    check(held(30, 53, refusal: standing) == HeldBack(window: .any, resets: later, refused: true) && held(30, 53, refusal: standing)?.full == nil,
+          "a standing refusal with both numbers below 100: held back, the window not known (any)")
+    check(held(30, nil, refusal: standing)?.window == .week && held(nil, 53, refusal: standing)?.window == .fiveHour,
+          "the refusal's window is the one the numbers leave")
+    check(held(nil, nil, refusal: Refusal(until: later, at: past, on: .fiveHour))?.window == .fiveHour
+          && held(30, 53, refusal: Refusal(until: later, at: past, on: .week))?.window == .week, "else the window the refusal named")
+    check(held(30, 53, refusal: Refusal(until: past, at: past, on: .unknown)) == nil && held(30, 53) == nil
+          && held(30, 53, refusal: Refusal(until: nil, at: past, on: .unknown))?.refused == true,
+          "a refusal past its end holds nothing back; one with no end stands until the caller lifts it")
+    check(held(40, 53, refusal: standing, fiveResets: past)?.window == .fiveHour, "a number past its reset counts as not known")
+    // the week-only rule, in its exact form
+    check(Usage.hasFiveHour(fiveHour: nil, week: nil, refusedOn: nil, heldBack: nil), "nothing reported yet: the 5-hour row shows")
+    check(!Usage.hasFiveHour(fiveHour: nil, week: 40, refusedOn: nil, heldBack: nil), "a week and never a 5-hour number: hidden")
+    check(Usage.hasFiveHour(fiveHour: nil, week: 40, refusedOn: .fiveHour, heldBack: nil)
+          && !Usage.hasFiveHour(fiveHour: nil, week: 40, refusedOn: .unknown, heldBack: nil),
+          "...shown when a refusal names the 5-hour window (not one that names none)")
+    check(Usage.hasFiveHour(fiveHour: nil, week: 40, refusedOn: nil, heldBack: HeldBack(window: .fiveHour, resets: nil, refused: true))
+          && !Usage.hasFiveHour(fiveHour: nil, week: 100, refusedOn: nil, heldBack: HeldBack(window: .week, resets: later, refused: false)),
+          "...shown when the 5-hour window holds it back; a full week alone keeps it hidden")
+    let idle = Usage(fiveHour: 12, fiveHourResets: past, weekly: 40, weeklyResets: later, fetchedAt: past, source: "test")
+    check(idle.hasFiveHour(now: now) && idle.current(now: now).fiveHour == nil,
+          "an old 5-hour number (its reset passed: an idle 5-hour account) is never dropped: the row stays")
+    check(!Usage(weekly: 40, weeklyResets: later, fetchedAt: past, source: "test").hasFiveHour(now: now)
+          && Usage(weekly: 40, weeklyResets: later, fetchedAt: past, source: "test").hasFiveHour(refusal: Refusal(until: later, at: past, on: .unknown), now: now),
+          "from the numbers: week-only hides it; a standing refusal the numbers leave to the 5-hour window shows it")
+}
+
 // ============ 4. times in words (a fixed calendar), and the level ============
 do {
     let now = gmt.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 10, minute: 0))!
@@ -429,6 +466,15 @@ do {
           && limit(q10, 100, nil, age: 10 * 60) == nil, "cl_quick's 10 minutes: a dated full stays as last known; a dateless 100% doesn't")
     check(!answer(Headline.Owner(), age: 2 * 3600, ages: quick).numbers() && answer(Headline.Owner(), age: 2 * 3600, ages: quick).age == .hidden,
           "cl_quick's over an hour: hidden")
+    // ...except a dated full, kept grey until its reset however old the reading (the caller keeps dated fulls)
+    let q2h = answer(Headline.Owner(), age: 2 * 3600, ages: quick), far = now.addingTimeInterval(3 * 86400)
+    check(q2h.datedFullOnly() && limit(q2h, 100, far, age: 2 * 3600) == Headline.Limit(percent: 100, resets: far, lastKnown: true)
+          && limit(q2h, 40, far, age: 2 * 3600) == nil && limit(q2h, 100, nil, age: 2 * 3600) == nil && !q2h.acts,
+          "cl_quick's two hours: a full limit with its reset ahead still shows, last known; nothing else, never a dateless 100%")
+    let a2h = answer(Headline.Owner(), age: 2 * 3600, ages: Headline.Ages(freshFor: 360, hiddenAfter: 3600))
+    check(!a2h.datedFullOnly() && limit(a2h, 100, far, age: 2 * 3600) == nil
+          && !answer(Headline.Owner(), signedIn: false, age: 2 * 3600, ages: quick).datedFullOnly(),
+          "...not for a caller that keeps no dated fulls, nor signed out")
 
     // a limit whose reset has passed: no percent, no reset (the one rule, Freshness.current)
     check(limit(own, 55, now.addingTimeInterval(-1)) == Headline.Limit(percent: nil, resets: nil, lastKnown: false)
@@ -485,6 +531,9 @@ do {
           "full(now:): the full limit until its reset passes, drawn later")
     let qOld = make(read(40, age: 2 * 3600), ages: quick)
     check(qOld.usage == nil && qOld.none == .hidden && qOld.tier == .stale && qOld.grey, "two hours (cl_quick's): hidden")
+    let qFull = make(read(100, age: 2 * 3600, resets: now.addingTimeInterval(86400)), ages: quick)
+    check(qFull.usage?.weekly == 100 && qFull.usage?.fiveHour == nil && qFull.none == nil && qFull.tier == .stale && qFull.full == nil,
+          "two hours (cl_quick's) with the week full until tomorrow: only that full week shows, grey, never acting")
 
     // the split: no numbers, the account in use's lamp, the key to it (not while a switch waits, not without its address)
     let splitOwner = Headline.Owner(inUse: pat, signIn: mo, differs: true)
