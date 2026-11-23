@@ -180,13 +180,15 @@ public enum ClaudeFinder {
     /// on PATH.
     static func lookupEnvironment(_ base: [String: String], path: String?) -> [String: String] {
         var env = ProviderEnvironment.cleaned(base)
-        if let path { env["PATH"] = path + ":/usr/bin:/bin:" + (env["PATH"] ?? "") }
+        // absolute entries only, never a trailing ":" (the current folder) when the caller has no PATH
+        if let path { env["PATH"] = ClaudeEnvironment.path([path, "/usr/bin", "/bin"], then: env["PATH"]) }
         return env
     }
 
+    /// What a finder's program printed, when it ended well and its output came whole (never a part cut at the cap).
     static func output(_ exe: String, _ args: [String], environment: [String: String], timeout: TimeInterval) -> String? {
         guard let r = Runner.run(Program(exe, args, environment: environment, timeout: timeout, grace: 0.1, keepOutput: true)),
-              r.status == 0 else { return nil }
+              r.status == 0, r.complete else { return nil }
         return String(data: r.output, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
