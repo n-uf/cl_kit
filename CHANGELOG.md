@@ -3,6 +3,30 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
+## 26.11.6
+
+Finding accounts on this Mac, each source a plain function (stage 9 of the platform concept, the kit part; no app
+changes yet). No source breaks: all of it is new API.
+
+- **One shape.** `FoundAccount`: one sighting of an account, named fields only (its id in normal form, the organisation's
+  id, the address, the organisation's name and type as written, the plan, when last used, where it was seen).
+  `FoundAccounts` puts sightings together first seen first, as cl_audit's account list does: each account's address and
+  plan as written (an id that isn't UUID-shaped too), each organisation's name and type from one record, every seat
+  (both ids UUID-shaped) in order, when each was last used, the ids a transcript names alone, accounts in the order seen.
+- **The sources** (`AccountSources`, every path the caller's): a folder's record and its backups (`folderRecordFiles`,
+  exact backup names), the Claude Code folders in a home (`claudeFolders`: links to folders included, never
+  ~/.claude-switch), every ~/.claude* and claude-transplant switch record (`homeRecordFiles`), and their accounts
+  (`records`, bounded reads).
+- **Options, cl_audit's** (`Auth/DiscoveryApp.swift`): the desktop app's session folders (`appSessions`: names and dates,
+  an agent record's address, at most 1 MB a record and none for an address already known) and the account ids
+  transcripts name (`transcriptAccounts`: it reads chats). No link is followed in either.
+- **The incognito build ships no chat reader.** `kit_build OUT no-keychain` (cl_quick's) now leaves out
+  `Auth/DiscoveryApp.swift` as well as `Auth/Keychain.swift`; the nokeychain suite checks that ClaudeAuth holds neither
+  reader.
+- `RecordFile.head`: the first bytes of a regular file, never a FIFO or a device.
+- **Checks:** the auth suite gains each source on a throwaway home with sample records (linked folders, backup names,
+  bounded and linked records, the caps); the nokeychain suite checks for the session and chat readers.
+
 ## 26.11.5
 
 The usage rules and the runner cl_quick still copies (stage 5 of the platform concept; no app changes yet). ProfileCore: no
