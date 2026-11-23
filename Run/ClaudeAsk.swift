@@ -38,7 +38,8 @@ public enum ClaudeAsk {
     public enum End: Equatable {
         /// Every answer asked for came (an error answer to `get_usage` counts: it said no).
         case answered
-        /// The time ran out first (an answer read only after the stop is kept in `Answer`, the end still this).
+        /// The time ran out with an answer still missing (a complete answer read as it ended, after the stop, is
+        /// `answered`; a part of one is kept in `Answer`).
         case timedOut
         /// `claude` ended before answering.
         case exited
@@ -96,9 +97,10 @@ public enum ClaudeAsk {
     /// `folder`: where it runs, a folder (made by the caller: never made here). `usage`: ask `get_usage` too. Ends on every answer asked for, on `claude`'s end, or
     /// after `timeout`; then `claude` is stopped step by step, each step `grace` after the last one: its input closed, then
     /// SIGTERM, then SIGKILL (`Answer.stop` says which step ended it, `exitStatus` how). SIGTERM comes only a grace after
-    /// the input closed. After a timeout, the output is read for up to one more grace once it is stopped (a line it wrote as
-    /// it ended is kept; the answer still says timed out). Blocks up to `timeout` + 3 × `grace` + 2 s in the worst case
-    /// (the input closed, SIGTERM, the kill's end waited for 2 s, the last output read): off the main thread.
+    /// the input closed. After a timeout, once it is stopped, it waits up to one more grace for the output to end, so a line
+    /// it wrote as it ended is read: every answer asked for there makes the end `answered`, else it is `timedOut`. Blocks
+    /// up to `timeout` + 3 × `grace` + 2 s in the worst case (the input closed, SIGTERM, the kill's end waited for 2 s, the
+    /// output's end waited for): off the main thread.
     public static func ask(claude: String, environment: [String: String], folder: String, usage: Bool,
                            timeout: TimeInterval = 25, grace: TimeInterval = 1.5) -> Answer {
         var isFolder: ObjCBool = false
@@ -140,8 +142,8 @@ public enum ClaudeAsk {
                 }
             }
         }
-        // after a timeout, the last of its output, briefly: what it wrote as it ended is read (never past one grace: a
-        // grandchild may hold the output open)
+        // after a timeout, wait up to one more grace for the output to end, so what it wrote as it ended is read (a
+        // grandchild may hold the output open: never longer)
         if timedOut { _ = outputEnd.wait(timeout: .now() + g) }
         return state.answer(timedOut: timedOut, stop: stop)
     }
@@ -229,18 +231,28 @@ public enum ClaudeAsk {
             while let nl = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<nl])
                 buffer.removeSubrange(buffer.startIndex...nl)
-                if initialize == nil { initialize = ClaudeAsk.initializeAnswer(line) }
-                switch ClaudeAsk.event(line) {
-                case .account(let a): account = a
-                case .limits(let l): limits = l
-                case .error(let id, let text): if id == ClaudeAsk.usageID { usageError = text } else { initializeError = true }
-                case .ignored: break
-                }
+                read(line)
             }
             return complete
         }
 
-        func exited() { lock.lock(); ended = true; lock.unlock() }
+        /// One output line (the lock held).
+        private func read(_ line: Data) {
+            if initialize == nil { initialize = ClaudeAsk.initializeAnswer(line) }
+            switch ClaudeAsk.event(line) {
+            case .account(let a): account = a
+            case .limits(let l): limits = l
+            case .error(let id, let text): if id == ClaudeAsk.usageID { usageError = text } else { initializeError = true }
+            case .ignored: break
+            }
+        }
+
+        /// Its output ended: a last line with no newline after it is read too.
+        func exited() {
+            lock.lock(); defer { lock.unlock() }
+            ended = true
+            if !buffer.isEmpty { read(buffer); buffer.removeAll() }
+        }
 
         /// Its output has ended (it has ended, or is ending, by itself).
         var outputEnded: Bool { lock.lock(); defer { lock.unlock() }; return ended }
@@ -254,8 +266,8 @@ public enum ClaudeAsk {
 
         func answer(timedOut: Bool, stop: Stop) -> Answer {
             lock.lock(); defer { lock.unlock() }
-            // (timed out stays timed out: answers read only after the stop are kept, but came too late)
-            let end: End = timedOut ? .timedOut : complete ? .answered : .exited
+            // every answer asked for came (a late one read as it ended too): answered; else timed out, or it ended with none
+            let end: End = complete ? .answered : ended && stop == .byItself ? .exited : timedOut ? .timedOut : .exited
             return Answer(account: account, limits: limits, usageError: usageError, end: end, initialize: initialize, stop: stop,
                           exitStatus: exit?.status, signaled: exit?.signaled ?? false)
         }
