@@ -148,4 +148,16 @@ public enum RecordFile {
         guard let data = try? h.read(upToCount: max + 1), data.count <= max else { return nil }
         return data
     }
+
+    /// The first `bytes` of a regular file (a FIFO or a device returns nil at once), whatever its size.
+    static func head(_ path: String, bytes: Int) -> Data? {
+        var before = stat()
+        guard stat(path, &before) == 0, (before.st_mode & S_IFMT) == S_IFREG else { return nil }
+        let fd = open(path, O_RDONLY | O_NONBLOCK)
+        guard fd >= 0 else { return nil }
+        let h = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_dev == before.st_dev, st.st_ino == before.st_ino else { return nil }
+        return try? h.read(upToCount: Swift.max(0, bytes)) ?? Data()
+    }
 }
