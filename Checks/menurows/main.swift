@@ -18,6 +18,7 @@ func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "")
 }
 
 let short = "wu@example.com", long = "zedekiah.with.a.long.name@sample-domain.example.net", other = "ines@example.org"
+let uuid8 = "1a2b3c4d"
 /// The pieces of an address a match could use: its local part, its domain, each word of three letters or more.
 func parts(_ a: String) -> [String] {
     let at = a.firstIndex(of: "@")!
@@ -146,6 +147,91 @@ check("size: one line without a second line; two with the usage line or a note, 
 check("size: the second line's words, the note when there are no numbers", withNote.secondLine == "Signed out" && oneLine.secondLine == nil)
 check("size: compact (a native item's height for one line, under 40 pt for two)",
       oneLine.height <= 30 && withUsage.height < 40, "\(oneLine.height) \(withUsage.height)")
+
+// ── review fixes: the pointer forgotten, the prefix, the standby look, the pick's order, help, hidden words, the title ──
+// the pointer is never remembered: leaving the window or the menu's end drops a stand-in, and without one the row asks
+// the window (none here: not on it)
+let host = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 100), styleMask: [.borderless], backing: .buffered, defer: true)
+let roaming = view(short); host.contentView?.addSubview(roaming)
+roaming.menuLit = true; roaming.pointer(true)
+check("pointer: lit with the pointer on it (a stand-in): sharp", roaming.sharp)
+roaming.removeFromSuperview()
+check("pointer: the row left its window (the menu closed): the stand-in is gone, the stand-in address back",
+      roaming.pointerStandIn == nil && !roaming.sharp && roaming.drawnAddress == AddressText.standIn)
+let menu = NSMenu(), menuItem = MenuAccountRowView.item(MenuAccountRow(address: short, inUse: false), blur: true) {}
+menu.addItem(menuItem)
+let inMenu = menuItem.view as! MenuAccountRowView
+inMenu.menuLit = true; inMenu.pointer(true)
+check("pointer: in a menu, lit with the pointer on it: sharp", inMenu.sharp)
+NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+check("pointer: its menu ended tracking: nothing remembered, a later keyboard highlight shows the stand-in",
+      inMenu.pointerStandIn == nil && { inMenu.menuLit = true; return !inMenu.sharp }())
+let other2 = NSMenu(); let stays = view(short); stays.pointer(true)
+NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: other2)
+check("pointer: another menu's end doesn't touch the row", stays.pointerStandIn == true)
+check("pointer: with no stand-in and no window, the pointer isn't on it", view(short).pointerOn == false)
+
+// the prefix: before the address, in the title, the room and the spoken words, nothing of a hidden address
+let signRow = view(short, blur: true)
+let sign = MenuAccountRowView(row: MenuAccountRow(prefix: "Sign Terminal in to ", address: short, inUse: false, tag: "…"), pick: {})
+sign.blur = true
+check("prefix: the title and VoiceOver say it, then 'hidden address', then the tag",
+      sign.title == "Sign Terminal in to hidden address…" && sign.accessibilityLabel() == "Sign Terminal in to hidden address…"
+      && !leaks(sign.title, of: short))
+check("prefix: the address starts after it, and the row is wider by it",
+      sign.addressX > MenuRowColumns.standard.addressX && sign.naturalWidth > signRow.naturalWidth)
+sign.blur = false
+check("prefix: shown, the address itself after it", sign.title == "Sign Terminal in to \(short)…")
+
+// the standby look: dimmed, a hollow lamp, the columns
+let plainRow = view(short, tag: " · standby")
+let dimmedRow = MenuAccountRowView(row: MenuAccountRow(address: short, inUse: false, tag: " · standby", dimmed: true, marker: .hollowLamp), pick: {})
+dimmedRow.blur = true; dimmedRow.frame.size = plainRow.frame.size
+check("standby look: dimmed with a hollow lamp draws differently from a plain row (and still lights and acts)",
+      pixels(dimmedRow) != pixels(plainRow) && { dimmedRow.menuLit = true; return dimmedRow.lit }())
+let lined = MenuAccountRowView(row: MenuAccountRow(address: short, inUse: false), columns: MenuRowColumns(markerX: 14, addressX: 27), pick: {})
+lined.blur = true
+check("columns: the address stands at the app's column (cl_quick's block: 27 pt), the row wider by the difference",
+      lined.addressX == 27 && lined.naturalWidth == view(short).naturalWidth + 13)
+
+// the pick runs once the menu's tracking has ended, in the default mode
+var pressed = 0
+let presser = MenuAccountRowView(row: MenuAccountRow(address: short, inUse: false), pick: { pressed += 1 })
+presser.press()
+check("press: pick doesn't run inside the press (the menu is still tracking)", pressed == 0)
+let pressDeadline = Date().addingTimeInterval(1)
+while pressed == 0 && Date() < pressDeadline { _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+check("press: pick runs in the default run-loop mode, after", pressed == 1)
+
+// VoiceOver's help: the hint
+check("help: VoiceOver's help is the hint (a hidden standby row says it switches)",
+      view(short, hint: "Switch…").accessibilityHelp() == "Switch…" && view(short).accessibilityHelp() == nil)
+
+// the app's words never carry an address while hidden
+let sloppy = MenuAccountRowView(row: MenuAccountRow(prefix: "Back to \(other) or ", address: short, inUse: false, note: "Was on \(long)",
+                                                    tag: " · \(uuid8)", hint: "Switch to \(other)"), pick: {})
+sloppy.blur = true
+check("hidden words: a prefix, note, tag or hint naming an address or an id is 'hidden address' while hidden",
+      !leaks(sloppy.title, of: other) && !leaks(sloppy.accessibilityLabel() ?? "", of: long) && !(sloppy.accessibilityLabel() ?? "").contains(uuid8)
+      && !leaks(sloppy.accessibilityHelp() ?? "", of: other) && sloppy.secondLine == "Was on hidden address"
+      && sloppy.accessibilityHelp() == "Switch to hidden address" && sloppy.title.hasSuffix(" · hidden address"), "\(sloppy.accessibilityLabel() ?? "")")
+sloppy.blur = false
+check("hidden words: shown, the app's words as given", sloppy.secondLine == "Was on \(long)" && sloppy.accessibilityHelp() == "Switch to \(other)")
+
+// the title follows the setting
+let live = MenuAccountRowView.item(MenuAccountRow(address: short, inUse: false), blur: true) {}
+check("title: hidden at first", live.title == "hidden address")
+(live.view as? MenuAccountRowView)?.blur = false
+check("title: the item's title follows a change of the setting (refresh)", live.title == short)
+
+// numbers that aren't numbers, and the app's own marks
+check("usage: a number that isn't finite is left out, never a trap",
+      MenuUsageLine.of(display(five: .nan, week: .infinity), now: now) == nil && MenuUsageLine.of(display(five: .nan, week: 3), now: now)?.words == "Week 3%")
+let marks = MenuRowWords(fiveHour: "5h", week: "Week", full: "full", tick: "•", selected: "in use")
+let marked = MenuAccountRowView.item(MenuAccountRow(address: short, inUse: true), words: marks, blur: true) {}
+check("words: the tick and VoiceOver's word for the account in use are the app's to say",
+      marked.view?.accessibilityValue() as? String == "in use" && (marked.view as? MenuAccountRowView)?.words.tick == "•")
 
 print("menurows: \(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)

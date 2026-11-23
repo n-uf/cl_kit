@@ -47,7 +47,7 @@ for a in "$@"; do
     core|runs|auth|claudesignin|nokeychain|addressprivacy|menurows) suites+=("$a") ;;
     all) suites+=(core runs auth claudesignin nokeychain addressprivacy menurows) ;;
     --no-build) build=0 ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 64 ;;
   esac
 done
@@ -211,7 +211,7 @@ run_menurows() {
     bad="$(grep -n -E '^[[:space:]]*(@[A-Za-z_]+(\([^)]*\))?[[:space:]]+)*import[[:space:]]' "$f" \
       | grep -v -E '^[0-9]+:[[:space:]]*import (Foundation|AppKit|ProfileCore|AddressPrivacy)[[:space:]]*$' || true)"
     [[ -z "$bad" ]] || { echo "FAIL menurows lint: $f imports more than ProfileCore, AddressPrivacy and Apple's AppKit: $bad"; lint=1; }
-    bad="$(grep -n -E '\b(NSLog|os_log|Logger\(|print\()' "$f" | grep -v -E '^[0-9]+: *//' || true)"
+    bad="$(grep -n -E '\b(NSLog|os_log|Logger\(|print\(|debugPrint\(|dump\(|fputs\()' "$f" | grep -v -E '^[0-9]+: *//' || true)"
     [[ -z "$bad" ]] || { echo "FAIL menurows lint: $f logs: $(printf '%s' "$bad" | head -2)"; lint=1; }
     bad="$(grep -n -i -E 'cl_audit|cl_quick|cl-audit|cl-quick|usage-n-uf' "$f" | grep -v -E '^[0-9]+: *//' || true)"
     [[ -z "$bad" ]] || { echo "FAIL menurows lint: $f names an app: $(printf '%s' "$bad" | head -2)"; lint=1; }

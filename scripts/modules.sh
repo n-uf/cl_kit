@@ -22,7 +22,9 @@
 #   kit_privacy_link OUT                                   prints the flags that link it (with its frameworks), one per line
 #   kit_build_menurows OUT [swiftc flags...]               builds MenuRows into OUT, which must already hold ProfileCore and
 #                                                          AddressPrivacy (kit_build, kit_build_privacy into the same OUT)
-#   kit_menurows_link OUT                                  prints the flags that link it (after the two it needs), one per line
+#   kit_menurows_link OUT                                  prints the flags that link it, one per line: put them BEFORE
+#                                                          kit_privacy_link's and ProfileCore's (a static library comes
+#                                                          before the ones it needs)
 #   kit_sources Core|Run|Auth|Privacy|MenuRows [left-out names...]  prints a module's source files, one per line
 #
 # Every module: Swift 5 language mode, macOS 13, arm64. Needs $kit_root only if this file isn't in <kit>/scripts/.
