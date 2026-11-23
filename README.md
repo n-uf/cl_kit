@@ -19,11 +19,13 @@ its own release. Nothing here is a product of its own, and no prebuilt binaries 
 | [`Run/`](Run/README.md) | Runs | the one runner (timeout, SIGTERM, a grace, SIGKILL; output read while it runs), a program kept running, the cleaned environment of a `claude` run, the process table | Foundation |
 | [`Auth/`](Auth/README.md) | ClaudeAuth | one folder's Claude Code sign-in: Claude Code's account, verified or guessed, and whose the numbers are (the one account rule both apps ask); a running claude's trail; the one `.claude.json` reader; saved keys; the watch; renew and sign-out; ClaudeSignIn, the sign-in in a Terminal window followed to its outcome | Foundation, CryptoKit, ProfileCore, Runs |
 | [`Privacy/`](Privacy/README.md) | AddressPrivacy | an account address on screen: the one fixed stand-in or "hidden address" in its place, never the real address blurred or masked; views, labels and plain text; the setting as a value the app passes in | Foundation, AppKit, CoreImage, Combine, SwiftUI |
+| [`MenuRows/`](MenuRows/README.md) | MenuRows | one account row of a menu bar menu: the address through AddressPrivacy (sharp only with the pointer on the row), a compact usage line from ProfileCore's display value, the tick for the account in use; no rule of its own | Foundation, AppKit, ProfileCore, AddressPrivacy |
 
 The layers are ProfileCore → Runs → ClaudeAuth: ProfileCore never imports the others, Runs imports nothing of ours, and
 ClaudeAuth sits on both. They are Foundation only (no AppKit or SwiftUI), carry no app's paths, words or global state, and
 never log. AddressPrivacy stands apart: it draws, so it uses Apple's UI frameworks, but it imports no module of ours, no
-layer imports it, it names no app and never logs. The suites' lints hold all of that.
+layer imports it, it names no app and never logs. MenuRows sits on top of ProfileCore and AddressPrivacy and imports only
+those two (and AppKit); nothing of ours imports it, it names no app and never logs. The suites' lints hold all of that.
 
 ## The Keychain is optional
 
@@ -38,17 +40,18 @@ macOS 13 or later on Apple silicon, Xcode's Swift toolchain (Swift 5 language mo
 modules are static libraries built with `swiftc`, as both apps build them.
 
 ```bash
-scripts/build.sh                 # build/libProfileCore.a, libRuns.a, libClaudeAuth.a, libAddressPrivacy.a and their .swiftmodule
+scripts/build.sh                 # build/libProfileCore.a, libRuns.a, libClaudeAuth.a, libAddressPrivacy.a, libMenuRows.a and their .swiftmodule
 scripts/build.sh --no-keychain   # the same without Auth/Keychain.swift
 ```
 
 An app's own build sources `scripts/modules.sh` from its vendored copy and calls `kit_build OUT keychain|no-keychain [flags]`
-and `kit_link OUT`, and for AddressPrivacy `kit_build_privacy OUT [flags]` and `kit_privacy_link OUT` (see the file's header).
+and `kit_link OUT`, for AddressPrivacy `kit_build_privacy OUT [flags]` and `kit_privacy_link OUT`, and for MenuRows (after
+both, into the same OUT) `kit_build_menurows OUT [flags]` and `kit_menurows_link OUT` (see the file's header).
 
 ## Checks
 
 ```bash
-Checks/run.sh            # all suites: core, runs, auth, claudesignin, nokeychain, addressprivacy
+Checks/run.sh            # all suites: core, runs, auth, claudesignin, nokeychain, addressprivacy, menurows
 Checks/run.sh auth       # one suite
 ```
 
