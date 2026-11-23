@@ -3,6 +3,33 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
+## 26.11.7
+
+MenuRows, a new module: one menu bar account row for both apps (stage 8 of the platform concept, the kit part; no app
+changes yet). No source breaks: a new module, nothing else in the kit changes.
+
+- **MenuRows** (`MenuRows/`): one account row of a menu bar menu, from cl_audit's address row and cl_quick's standby row.
+  It imports ProfileCore and AddressPrivacy only (and Foundation, AppKit), holds no rule of its own, names no app and
+  never logs; nothing of ours imports it. Its API:
+  - `MenuAccountRow`, the row as data: `prefix`, `address`, `inUse`, `usage`, `note`, `tag`, `hint`, `enabled`, `dimmed`,
+    `marker` (`Marker`: a tick, or the standby look's hollow lamp);
+  - `MenuUsageLine.of(_ display: ProfileDisplay, words:now:)`: the compact usage line from ProfileCore's display value
+    (each limit's rounded percent in its level, the 5-hour part only where `hasFiveHour` lets it, a full limit's countdown
+    instead, grey for old numbers; nil without numbers), its `parts`, `full`, `grey` and `words`;
+  - `MenuRowWords` (`standard`: "5h", "Week", "full", "✓", "selected", or the app's own) and `MenuRowColumns` (`standard`:
+    the tick in the margin, the address at 14 pt);
+  - `MenuAccountRowView` (an `NSView`) and `MenuAccountRowView.item(_:words:columns:blur:pick:)`, the menu item: the
+    address through AddressPrivacy (while addresses are hidden the one stand-in, blurred, sharp only while the row is lit
+    and the pointer is on it; its room the stand-in's), the title and VoiceOver's label with "hidden address" in the
+    address's place, the account in use as the item's `.on` state; a click closes the menu, then runs `pick` once the
+    menu's tracking has ended; `refresh()` for a row kept across a change of the setting.
+- **Build.** `scripts/modules.sh` gains `kit_build_menurows OUT` (after `kit_build` and `kit_build_privacy` into the same
+  OUT) and `kit_menurows_link OUT`. Link order: put `kit_menurows_link`'s flags BEFORE `kit_privacy_link`'s and
+  `kit_link`'s (ProfileCore), since a static library comes before the ones it needs. `scripts/build.sh` builds it too.
+- **Checks:** the new `menurows` suite (in `all`, so in CI), its lint first (imports, no logging, no app named, imported by
+  nothing of ours), with sample addresses: the usage line against display values, nothing of a hidden address in words or
+  pixels, the pointer-only reveal, the tick, the item, the sizes.
+
 ## 26.11.6
 
 Finding accounts on this Mac, each source a plain function (stage 9 of the platform concept, the kit part; no app
