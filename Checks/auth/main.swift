@@ -359,6 +359,78 @@ do {
           "risk: ...nor after a switch to the other seat, a sign-out, or with nobody named at its launch")
 }
 
+// ============ 4b2. finding accounts on this Mac: each source on a throwaway home with sample records ============
+do {
+    let h = home + "/finding"
+    mkdir(h + "/.claude/backups"); mkdir(h + "/.claude-work/backups"); mkdir(h + "/.claude-switch/accounts/alt")
+    mkdir(h + "/.claude-notes")
+    let wu = uuid(201), zed = uuid(202), personal = uuid(251), team = uuid(252)
+    // the default folder's record is in the home folder; its backups beside it and in ~/.claude/backups
+    record(h + "/.claude.json", email: "wu@example.com", account: wu.uppercased(), org: personal, orgName: "Wu Personal", plan: "Max")
+    record(h + "/.claude.json.backup.1700000000", email: "wu@example.com", account: wu, org: team, orgName: "Example Team")
+    record(h + "/.claude/backups/.claude.json.backup.1", email: "zedekiah@example.com", account: zed, org: uuid(253))
+    record(h + "/.claude-work/.claude.json", email: "zedekiah@example.com", account: zed, org: uuid(253), plan: "Pro")
+    record(h + "/.claude-switch/accounts/alt/.claude.json", email: "wu@example.com", account: wu, org: team)
+    write(h + "/.claude-notes/.claude.json", #"{"oauthAccount":{"accountUuid":"not-an-id","emailAddress":"wu@example.com","accessToken":"never-read"}}"#)
+    try? fm.createSymbolicLink(atPath: h + "/.claude-linked", withDestinationPath: h + "/.claude-work")
+
+    let def = AuthFolder(path: "~/.claude", home: h), work = AuthFolder(path: "~/.claude-work", home: h)
+    check(AccountSources.folderRecordFiles(def) == [h + "/.claude.json", h + "/.claude/backups/.claude.json.backup.1", h + "/.claude.json.backup.1700000000"]
+          && AccountSources.folderRecordFiles(work) == [h + "/.claude-work/.claude.json"],
+          "a folder's record and its backups (the default folder's in the home folder too), names only")
+    check(AccountSources.claudeFolders(home: h) == ["~/.claude", "~/.claude-notes", "~/.claude-switch", "~/.claude-work"],
+          "the Claude Code folders in a home: ~/.claude first, then ~/.claude-*, never a link to one")
+    let homeFiles = AccountSources.homeRecordFiles(home: h)
+    check(homeFiles.contains(h + "/.claude.json") && homeFiles.contains(h + "/.claude-work/.claude.json")
+          && homeFiles.contains(h + "/.claude-switch/accounts/alt/.claude.json") && homeFiles.contains(h + "/.claude-linked/.claude.json"),
+          "every record in the home: each ~/.claude* and the switch folder's accounts")
+    let own = AccountSources.records(AccountSources.folderRecordFiles(def))
+    check(own.map(\.accountID) == [wu, zed, wu] && own[0].organizationID == personal && own[0].email == "wu@example.com"
+          && own[0].plan == "Max" && own[0].organizationName == "Wu Personal" && own[0].source == .record
+          && own[1].source == .backup && own[2].organizationID == team,
+          "the records' named fields: the id in its normal form, a backup told apart")
+    let all = AccountSources.records(homeFiles)
+    check(!all.contains { $0.path.hasSuffix(".claude-notes/.claude.json") } && all.allSatisfy { AccountSources.isUUID($0.accountID) },
+          "a record whose account id isn't UUID-shaped names no account (and no token is ever kept: no such field)")
+    var found = FoundAccounts(own)
+    found.add(AccountSources.records([work.recordPath]))
+    check(found.seats == [SeatID(account: wu, organization: personal), SeatID(account: zed, organization: uuid(253)), SeatID(account: wu, organization: team)]
+          && found.organization(of: wu.uppercased()) == personal && found.emails[zed] == "zedekiah@example.com"
+          && found.plans[wu] == "Max" && found.plans[zed] == "Pro" && found.organizationNames[team] == "Example Team",
+          "put together, first seen first: the record's organisation before a backup's; a later plan fills only what was missing")
+
+    // the desktop app's sessions (an option: cl_audit's)
+    let data = h + "/AppData"
+    let code = data + "/claude-code-sessions/\(wu)/\(team)", agent = data + "/local-agent-mode-sessions/\(zed.uppercased())/\(uuid(253))"
+    mkdir(code); mkdir(agent); mkdir(data + "/claude-code-sessions/not-an-id/\(team)")
+    write(code + "/local_\(uuid(301)).json", "{}"); write(code + "/notes.txt", "x")
+    write(agent + "/session.json", #"{"emailAddress":"zedekiah@example.com","messages":[]}"#)
+    let used = Date(timeIntervalSince1970: 1_800_000_000)
+    try? fm.setAttributes([.modificationDate: used], ofItemAtPath: code + "/local_\(uuid(301)).json")
+    let sessions = AccountSources.appSessions(dataDir: data)
+    check(sessions.count == 2 && sessions[0] == FoundAccount(accountID: wu, organizationID: team, lastUsed: used, source: .appSessions, path: code)
+          && sessions[1].accountID == zed && sessions[1].email == "zedekiah@example.com" && sessions[1].source == .appAgentSessions,
+          "the desktop app's sessions: UUID-named pairs, the last entry's date; an agent session's address")
+    check(AccountSources.isEntryName("local_\(uuid(301)).json") && !AccountSources.isEntryName("notes.txt") && AccountSources.appSessions(dataDir: h + "/none").isEmpty,
+          "entries by name; no data folder, no sessions")
+
+    // transcripts (an option: cl_audit's; it reads chats)
+    mkdir(h + "/.claude-work/projects/p1")
+    write(h + "/.claude-work/projects/p1/a.jsonl", #"{"type":"user","accountUuid":"\#(zed.uppercased())"}"# + "\n" + #"{"accountUuid":"\#(wu)"}"#)
+    write(h + "/.claude-work/projects/p1/late.jsonl", String(repeating: " ", count: 70_000) + #"{"accountUuid":"\#(uuid(209))"}"#)
+    check(mkfifo(h + "/.claude-work/projects/p1/pipe.jsonl", 0o600) == 0, "a FIFO made")
+    let t = Date()
+    let ids = AccountSources.transcriptAccounts(folder: work)
+    check(Set(ids.map(\.accountID)) == [zed, wu] && ids.allSatisfy { $0.organizationID == nil && $0.source == .transcript }
+          && Date().timeIntervalSince(t) < 2, "transcripts: ids alone, from each one's first 64 KB only, a FIFO skipped at once")
+    found.add(ids)
+    check(found.idsAlone.isEmpty && found.accounts == [wu, zed], "an id alone already seen by a seat adds nothing")
+    found.add([FoundAccount(accountID: uuid(210), source: .transcript, path: "x")])
+    check(found.idsAlone == [uuid(210)] && found.accounts.last == uuid(210), "a new id alone is kept apart (no organisation known)")
+    check(RecordFile.head(h + "/.claude-work/projects/p1/late.jsonl", bytes: 10)?.count == 10 && RecordFile.head(h + "/none", bytes: 10) == nil,
+          "RecordFile.head: the first bytes whatever the size; nothing for a file that isn't there")
+}
+
 // ============ 4c. the one folder reader ============
 do {
     mkdir(home + "/.claude-reader")
