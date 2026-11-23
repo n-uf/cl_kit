@@ -61,14 +61,18 @@ public enum ClaudeAsk {
         }
     }
 
-    /// Asks `claude` once. `environment`: the run's (ClaudeEnvironment.make, traceless); `folder`: where it runs (made by
-    /// the caller: never made here). `usage`: ask `get_usage` too. Ends on every answer asked for, on `claude`'s end, or
+    /// Asks `claude` once. `environment`: the run's (ClaudeEnvironment.make; the traceless pair is always added here);
+    /// `folder`: where it runs, a folder (made by the caller: never made here). `usage`: ask `get_usage` too. Ends on every answer asked for, on `claude`'s end, or
     /// after `timeout`; then `claude` is stopped (its input closed, SIGTERM, SIGKILL after `grace`). Blocks: off the main
     /// thread.
     public static func ask(claude: String, environment: [String: String], folder: String, usage: Bool,
                            timeout: TimeInterval = 25, grace: TimeInterval = 1.5) -> Answer {
-        guard FileManager.default.fileExists(atPath: folder) else { return Answer(end: .couldNotStart) }
-        let run = RunningProgram(Program(claude, arguments, environment: environment, folder: .at(folder), timeout: .infinity))
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue else { return Answer(end: .couldNotStart) }
+        // always traceless, whatever the caller passed: the ask never leaves a marker or a memory folder in the profile's folder
+        var env = environment
+        for (k, v) in ClaudeEnvironment.traceless { env[k] = v }
+        let run = RunningProgram(Program(claude, arguments, environment: env, folder: .at(folder), timeout: .infinity))
         let state = Collected(wantsUsage: usage)
         let done = DispatchSemaphore(value: 0)
         run.onOutput = { chunk in
@@ -103,7 +107,8 @@ public enum ClaudeAsk {
     }
 
     /// One output line: a `control_response` to one of the ask's two requests; anything else is ignored. `initialize`'s
-    /// answer counts whether or not it lists models.
+    /// answer counts when it has an account (with or without models) or models (an account not given: it names nobody, a
+    /// key or a token); with neither it is ignored.
     public static func event(_ line: Data) -> Event {
         guard let o = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], o["type"] as? String == "control_response",
               let r = o["response"] as? [String: Any], let id = r["request_id"] as? String,
@@ -111,6 +116,8 @@ public enum ClaudeAsk {
         if r["subtype"] as? String == "error" { return .error(id: id, text: (r["error"] as? String) ?? "refused") }
         let answer = r["response"] as? [String: Any] ?? [:]
         if id == initializeID {
+            // an answer with neither models nor an account says nothing about who it is: not an answer that names nobody
+            guard answer["account"] is [String: Any] || answer["models"] is [Any] else { return .ignored }
             let a = answer["account"] as? [String: Any]
             var who: [String: String] = [:]
             for k in ["email", "organization"] {
