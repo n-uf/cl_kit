@@ -218,6 +218,15 @@ check("hidden words: a prefix, note, tag or hint naming an address or an id is '
       && sloppy.accessibilityHelp() == "Switch to hidden address" && sloppy.title.hasSuffix(" · hidden address"), "\(sloppy.accessibilityLabel() ?? "")")
 sloppy.blur = false
 check("hidden words: shown, the app's words as given", sloppy.secondLine == "Was on \(long)" && sloppy.accessibilityHelp() == "Switch to \(other)")
+let dated = view(short, note: "Last used 2026-11-20 at 9:41")
+check("hidden words: a date is not an id, shown as given", dated.secondLine == "Last used 2026-11-20 at 9:41", dated.secondLine ?? "")
+let uuid = "12345678-1234-1234-1234-123456789012"
+check("hidden words: ids still hidden: a UUID of digits, a bare digit run, hex letters",
+      view(short, note: "id \(uuid)").secondLine == "id hidden address" && view(short, note: "id 12345678").secondLine == "id hidden address"
+      && view(short, note: "id 1a2b-3c4d").secondLine == "id hidden address")
+let spaced = view(short, note: "Was\u{00A0}on\u{00A0}\(other)\nthen  \t\(uuid8)")
+check("hidden words: split at any white space (no-break space, newline, tab), the spaces kept",
+      spaced.secondLine == "Was\u{00A0}on\u{00A0}hidden address\nthen  \thidden address", spaced.secondLine ?? "")
 
 // the title follows the setting
 let live = MenuAccountRowView.item(MenuAccountRow(address: short, inUse: false), blur: true) {}
