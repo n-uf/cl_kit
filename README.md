@@ -29,8 +29,10 @@ layer imports it, it names no app and never logs. The suites' lints hold all of 
 
 `Auth/Keychain.swift` is the only file that reads the Keychain (read only, through `/usr/bin/security`). ClaudeAuth reaches
 a stored sign-in only through `StoredSignInReader`, so an app that never reads the Keychain builds ClaudeAuth without that
-file: cl_audit builds it in, cl_quick leaves it out. The `nokeychain` suite builds ClaudeAuth without it and checks that the
-libraries name no Security API and no `security` tool.
+file: cl_audit builds it in, cl_quick leaves it out. The same build (`no-keychain`) also leaves out `Auth/DiscoveryApp.swift`,
+the account sources that open the desktop app's session records and read Claude Code's transcripts, so an incognito app ships
+no chat reader. The `nokeychain` suite builds ClaudeAuth without both and checks that the libraries name no Security API, no
+`security` tool, and no session or chat reader.
 
 ## Build
 
