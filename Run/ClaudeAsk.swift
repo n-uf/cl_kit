@@ -48,7 +48,7 @@ public enum ClaudeAsk {
 
     /// How `claude` came to an end after the ask: by itself, once its input was closed, by SIGTERM, or by SIGKILL.
     public enum Stop: Equatable {
-        /// It ended before the ask stopped it (or never started).
+        /// It ended before the ask stopped it (it had ended, or its output had and it ended within `grace`).
         case byItself
         /// It ended once its input was closed (the usual end: a stream-json `claude` ends at the end of its input).
         case inputClosed
@@ -95,8 +95,8 @@ public enum ClaudeAsk {
     /// Asks `claude` once. `environment`: the run's (ClaudeEnvironment.make; the traceless pair is always added here);
     /// `folder`: where it runs, a folder (made by the caller: never made here). `usage`: ask `get_usage` too. Ends on every answer asked for, on `claude`'s end, or
     /// after `timeout`; then `claude` is stopped step by step, each step `grace` after the last one: its input closed, then
-    /// SIGTERM, then SIGKILL (`Answer.stop` says which step ended it, `exitStatus` how). Blocks (at most `timeout` and two
-    /// graces, and a moment for the kill): off the main thread.
+    /// SIGTERM, then SIGKILL (`Answer.stop` says which step ended it, `exitStatus` how). SIGTERM comes only a grace after
+    /// the input closed. Blocks up to `timeout` + 2 × `grace` + 2 s (the kill's end waited for): off the main thread.
     public static func ask(claude: String, environment: [String: String], folder: String, usage: Bool,
                            timeout: TimeInterval = 25, grace: TimeInterval = 1.5) -> Answer {
         var isFolder: ObjCBool = false
@@ -111,7 +111,8 @@ public enum ClaudeAsk {
             guard let chunk else { state.exited(); done.signal(); return }
             if state.take(chunk) { done.signal() }
         }
-        run.onExit = { status, signaled in state.finished(status: status, signaled: signaled); ended.signal() }
+        // its end as the process ends, not as its output ends (something it started may hold the output open)
+        run.onTermination = { status, signaled in state.finished(status: status, signaled: signaled); ended.signal() }
         do { try run.start() } catch { return Answer(end: .couldNotStart) }
         var lines = controlLine(id: initializeID, subtype: "initialize")
         if usage { lines.append(controlLine(id: usageID, subtype: "get_usage")) }
@@ -121,14 +122,20 @@ public enum ClaudeAsk {
         let g = max(0, grace)
         func endsWithin(_ t: TimeInterval) -> Bool { ended.wait(timeout: .now() + t) == .success }
         let stop: Stop
-        if state.outputEnded, endsWithin(1) { stop = .byItself }
+        if endsWithin(0) || (state.outputEnded && endsWithin(g)) { stop = .byItself }
         else {
             run.closeInput()
             if endsWithin(g) { stop = .inputClosed }
             else {
-                kill(run.pid, SIGTERM)
+                // a signal only to a process still running (never to a pid it may have left behind)
+                if run.isRunning { kill(run.pid, SIGTERM) }
                 if endsWithin(g) { stop = .terminated }
-                else { kill(run.pid, SIGKILL); _ = endsWithin(2); stop = .killed }
+                else {
+                    if run.isRunning { kill(run.pid, SIGKILL) }
+                    // its end not heard back within 2 s: it was killed all the same
+                    if !endsWithin(2) { state.finished(status: SIGKILL, signaled: true) }
+                    stop = .killed
+                }
             }
         }
         return state.answer(timedOut: timedOut, stop: stop)
