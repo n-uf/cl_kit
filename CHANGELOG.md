@@ -6,8 +6,10 @@ Versions and release).
 ## 26.11.8
 
 A patch: shared seats in the status record, the split's numbers for a caller that names their account, and the short ask's
-end and its `initialize` answer for cl_quick (no app changes). No source breaks: the record's fields stay, the rest is new
-API or a new parameter with a default.
+end and its `initialize` answer for cl_quick (no app changes). No source breaks for ordinary use: the record's fields stay,
+the rest is new API or a new parameter with a default. Two edge cases: a function reference to an initialiser that gained
+a defaulted parameter (`Headline.Ages.init`, `Headline.Answer.init`, `ClaudeAsk.Answer.init`) has a new type, and
+`ClaudeAsk.Answer`'s synthesized `==` now also compares `initialize`, `stop`, `exitStatus` and `signaled`.
 
 - **Behaviour change: an older record's clash no longer hides the split.** cl_audit dropped "one profile per account"
   (an account may be several profiles': shared seats). `ResolvedAccount.clash` and `clashID` are an older build's,
@@ -18,18 +20,25 @@ API or a new parameter with a default.
   `StatusAges.of(pollMinutes:splitShowsNumbersOwner:)`), false by default so nothing changes unless asked. With it, in the
   split (the Claude app and Terminal on different accounts) the numbers are shown as their own account's (cl_audit names it:
   "<address> · Terminal"): `Headline.Answer` keeps the numbers and the plan, `ProfileDisplay` its usage, level, grey, full
-  and what holds it back, `none` stays nil, and they act as for the numbers' own account. The split is still said
-  (`split`), so the app still draws its line. cl_quick has no split.
+  and what holds it back, and they act for that named account (a full limit there really holds its work back; an app's
+  alert never names an account). With numbers to show, `none` is nil; without, it gives the real reason (hidden by age,
+  not read), never `.split`. Another reading, an unconfirmed owner and a sign-in gone still win. The split is still said
+  (`split`), so the app still draws its line. cl_quick has no split, and never reads or writes a record's clash.
 - **The short ask's end** (Runs): `ClaudeAsk.Answer.stop` says which step ended `claude` (`byItself`, `inputClosed`,
-  `terminated` by SIGTERM, `killed` by SIGKILL; the stop runs step by step, each a grace after the last), with its
-  `exitStatus` and `signaled`. `RunningProgram.closeInput()` closes a program's input alone.
+  `terminated` by SIGTERM, `killed` by SIGKILL), with its `exitStatus` and `signaled`, heard as the process ends (not as
+  its output ends: something it started may hold the output open), and a signal is sent only to a process still running.
+  **Behaviour change:** the stop now runs step by step: the input closed, then SIGTERM only a grace later (it came at once
+  before), then SIGKILL a grace after that; so `ask` can block up to `timeout` + 2 × `grace` + 2 s.
+  `RunningProgram.closeInput()` closes a program's input alone, and `RunningProgram.onTermination` hears its end as the
+  process ends.
 - **`initialize` as it came** (Runs): `ClaudeAsk.Answer.initialize` (`Initialize`: the account object's named fields and
   the models' values, each nil when absent) and `ClaudeAsk.initializeAnswer(_:)`, so an account without a model list can be
   checked directly.
 - **Checks:** the core suite gains a record with a clash that still splits, and the split with and without
-  `splitShowsNumbersOwner` (in the headline and the display: numbers, level, grey, full); the runs suite the stop step and exit status
-  of each stand-in `claude` (input closed, SIGTERM, one that ignores it and is killed, one that quits) and `initialize` as
-  it came.
+  `splitShowsNumbersOwner` (in the headline, the display and `StatusRecord.shown`: numbers, level, grey, full, what holds
+  it back, dated fulls past the hour, an old full left out, `none`'s real reason, and what still wins over it); the runs
+  suite the stop step and exit status of each stand-in `claude` (input closed, SIGTERM, one that ignores it and is killed,
+  one that quits), `initialize` as it came, `closeInput` and `onTermination`.
 
 ## 26.11.7
 
