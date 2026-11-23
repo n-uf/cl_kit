@@ -11,10 +11,12 @@
 //   (grey as soon as last known, never while fresh). No read time counts as fresh;
 // - full: only numbers that act have a full limit (AtLimit.blocker over what may show);
 // - the lamp (the account in use, and nothing in the way): lit for a known account in use, unless its sign-in needs the
-//   person or can't be read, or the sign-in is on another profile's account; in the split the lamp is the account in
-//   use's (lit: the sign-in that reads the numbers is the other account's matter);
-// - the one key: log in when the sign-in is on another account than the folder's or on another profile's account in use
-//   (the clash: the caller fills in the profile's own account, never the folder's), ran out or is gone; else, in the split,
+//   person or can't be read, or the caller passes a clash (a status record never does: its clash is an older build's,
+//   decoded only); in the split the lamp is the account in use's (lit: the sign-in that reads the numbers is the other
+//   account's matter);
+// - the numbers in the split: none, unless the caller names their own account (Ages.splitShowsNumbersOwner);
+// - the one key: log in when the sign-in is on another account than the folder's, or the caller passes a clash, ran out
+//   or is gone; else, in the split,
 //   log the sign-in in to the account in use (only when its address is known, and never while a switch waits for the
 //   other app); else none;
 // - the line: numbers whose account couldn't be confirmed say so first, then the split, then the caller's own line.
@@ -56,7 +58,8 @@ public struct ProfileDisplay: Equatable {
 
     /// The one key the profile's sign-in needs.
     public enum Key: Equatable {
-        /// Log in again (the profile's own account: the folder's, or in a clash the one the profile has in use).
+        /// Log in again (the profile's own account: the folder's, or, when the caller passes a clash, the one the profile
+        /// has in use).
         case logIn
         /// The split: log the sign-in in to the account in use, this address filled in.
         case logInCode(to: String)
@@ -147,7 +150,8 @@ public struct ProfileDisplay: Equatable {
         let none: NoNumbers? = usage != nil ? nil
             : !answer.signedIn ? (sign == .expired ? .expired : .signedOut)
             : answer.otherReading ? .otherReading
-            : answer.split != nil ? .split
+            // (with splitShowsNumbersOwner the split hides nothing: the real reason shows, hidden by age or not read)
+            : answer.split != nil && !answer.splitShowsNumbersOwner ? .split
             : answer.age == .hidden ? .hidden
             : .notRead
         // the tier: fresh while they act by age; grey past `greyAfter` (else as soon as last known)

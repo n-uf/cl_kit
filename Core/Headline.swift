@@ -38,7 +38,9 @@ public enum Headline {
         public var greyAfter: TimeInterval?
         /// In the split, the numbers still show, as their own account's: for a caller that names that account beside them
         /// (cl_audit's "<address> · Terminal"). The split is still said (`Answer.split`); the numbers, the plan, their level,
-        /// grey and full keep the rules for the numbers' own account. false (the default): the split shows no numbers.
+        /// grey and full keep the rules for the numbers' own account, and they act for that named account (a full limit
+        /// there really holds its work back; an app's alert never names an account). false (the default): the split shows
+        /// no numbers.
         public var splitShowsNumbersOwner: Bool
 
         public init(freshFor: TimeInterval, hiddenAfter: TimeInterval? = nil, datedFullStays: Bool = false, greyAfter: TimeInterval? = nil,

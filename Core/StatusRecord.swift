@@ -77,8 +77,8 @@ public struct StatusRecord: Codable, Equatable {
         scoped = nil; credits = nil
     }
 
-    /// Claude Code's folder on another profile's account in use (a clash): the numbers and the plan are that profile's
-    /// account's, so the record keeps none of them; `line` says why.
+    /// The record without the numbers, the plan or the 5-hour flag, `line` saying why: for a writer that still decides a
+    /// clash (an older build's rule, one profile per account). Readers never act on a record's clash (decoded only).
     public mutating func dropForClash(_ line: String?) {
         dropNumbers(); noFiveHour = nil; plan = nil
         problem = line
