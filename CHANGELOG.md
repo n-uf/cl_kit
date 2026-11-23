@@ -3,6 +3,16 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
+## Unreleased
+
+Planned for 26.11.10 (backlog; not built yet):
+
+- **FoundAccounts: an organisation's name and type, each from its own first record.** Today both come from the first
+  record that names either, so a record with a type (team, enterprise) and no name keeps a later record's name out, and
+  an app's label for that organisation shows no name. Take the name from the first record that has a name, and the type
+  from the first that has a type, independently. Seen while cl_audit adopted the discovery sources (its stage 9); a seat is
+  keyed by the organisation's id, so only a label is affected.
+
 ## 26.11.9
 
 MenuRows for cl_quick's stage 8, and the short ask's follow-ups from 26.11.8 (no app changes). No source breaks: new
