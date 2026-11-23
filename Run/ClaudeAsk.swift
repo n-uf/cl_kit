@@ -46,6 +46,27 @@ public enum ClaudeAsk {
         case couldNotStart
     }
 
+    /// How `claude` came to an end after the ask: by itself, once its input was closed, by SIGTERM, or by SIGKILL.
+    public enum Stop: Equatable {
+        /// It ended before the ask stopped it (or never started).
+        case byItself
+        /// It ended once its input was closed (the usual end: a stream-json `claude` ends at the end of its input).
+        case inputClosed
+        /// It ended on SIGTERM, `grace` after its input was closed.
+        case terminated
+        /// It was killed (SIGKILL), `grace` after SIGTERM.
+        case killed
+    }
+
+    /// `initialize`'s answer, its named fields only: whether it named an account and a model list, as `claude` said them.
+    public struct Initialize: Equatable {
+        /// The `account` object's `email` and `organization` (non-empty strings only); nil: no `account` object at all.
+        public var account: [String: String]?
+        /// The models' `value`s, in order; nil: no `models` list at all (an empty list is []).
+        public var models: [String]?
+        public init(account: [String: String]?, models: [String]?) { self.account = account; self.models = models }
+    }
+
     public struct Answer: Equatable {
         /// `initialize`'s `account`: `email` and `organization` (its name), each only when given and not empty; nil when
         /// no answer came. Empty when it names nobody (a key, a token). As a running claude's own word, for ClaudeAuth's
@@ -56,15 +77,26 @@ public enum ClaudeAsk {
         /// `get_usage` answered with an error (its text).
         public var usageError: String?
         public var end: End
-        public init(account: [String: String]? = nil, limits: Limits? = nil, usageError: String? = nil, end: End) {
+        /// `initialize`'s answer as it came (an account without a model list, models without an account); nil: none came.
+        public var initialize: Initialize?
+        /// How `claude` ended after the ask; nil when it couldn't start.
+        public var stop: Stop?
+        /// Its exit status, as the process ended: the status, or the signal's number when `signaled`; nil: not known.
+        public var exitStatus: Int32?
+        /// It ended by a signal (SIGTERM, SIGKILL, or its own crash).
+        public var signaled: Bool
+        public init(account: [String: String]? = nil, limits: Limits? = nil, usageError: String? = nil, end: End,
+                    initialize: Initialize? = nil, stop: Stop? = nil, exitStatus: Int32? = nil, signaled: Bool = false) {
             self.account = account; self.limits = limits; self.usageError = usageError; self.end = end
+            self.initialize = initialize; self.stop = stop; self.exitStatus = exitStatus; self.signaled = signaled
         }
     }
 
     /// Asks `claude` once. `environment`: the run's (ClaudeEnvironment.make; the traceless pair is always added here);
     /// `folder`: where it runs, a folder (made by the caller: never made here). `usage`: ask `get_usage` too. Ends on every answer asked for, on `claude`'s end, or
-    /// after `timeout`; then `claude` is stopped (its input closed, SIGTERM, SIGKILL after `grace`). Blocks: off the main
-    /// thread.
+    /// after `timeout`; then `claude` is stopped step by step, each step `grace` after the last one: its input closed, then
+    /// SIGTERM, then SIGKILL (`Answer.stop` says which step ended it, `exitStatus` how). Blocks (at most `timeout` and two
+    /// graces, and a moment for the kill): off the main thread.
     public static func ask(claude: String, environment: [String: String], folder: String, usage: Bool,
                            timeout: TimeInterval = 25, grace: TimeInterval = 1.5) -> Answer {
         var isFolder: ObjCBool = false
@@ -74,18 +106,32 @@ public enum ClaudeAsk {
         for (k, v) in ClaudeEnvironment.traceless { env[k] = v }
         let run = RunningProgram(Program(claude, arguments, environment: env, folder: .at(folder), timeout: .infinity))
         let state = Collected(wantsUsage: usage)
-        let done = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0), ended = DispatchSemaphore(value: 0)
         run.onOutput = { chunk in
             guard let chunk else { state.exited(); done.signal(); return }
             if state.take(chunk) { done.signal() }
         }
+        run.onExit = { status, signaled in state.finished(status: status, signaled: signaled); ended.signal() }
         do { try run.start() } catch { return Answer(end: .couldNotStart) }
         var lines = controlLine(id: initializeID, subtype: "initialize")
         if usage { lines.append(controlLine(id: usageID, subtype: "get_usage")) }
         _ = run.write(lines)
         let timedOut = done.wait(timeout: .now() + timeout) == .timedOut
-        run.stop(grace: grace)
-        return state.answer(timedOut: timedOut)
+        // the stop, step by step: what ends it is said (an end already under way is waited for a moment first)
+        let g = max(0, grace)
+        func endsWithin(_ t: TimeInterval) -> Bool { ended.wait(timeout: .now() + t) == .success }
+        let stop: Stop
+        if state.outputEnded, endsWithin(1) { stop = .byItself }
+        else {
+            run.closeInput()
+            if endsWithin(g) { stop = .inputClosed }
+            else {
+                kill(run.pid, SIGTERM)
+                if endsWithin(g) { stop = .terminated }
+                else { kill(run.pid, SIGKILL); _ = endsWithin(2); stop = .killed }
+            }
+        }
+        return state.answer(timedOut: timedOut, stop: stop)
     }
 
     /// One control request for `claude`'s input, ending in a newline.
@@ -157,7 +203,9 @@ public enum ClaudeAsk {
         private let lock = NSLock()
         private var buffer = Data()
         private var account: [String: String]?, limits: Limits?, usageError: String?, initializeError = false
+        private var initialize: Initialize?
         private var ended = false
+        private var exit: (status: Int32, signaled: Bool)?
         let wantsUsage: Bool
 
         init(wantsUsage: Bool) { self.wantsUsage = wantsUsage }
@@ -167,9 +215,10 @@ public enum ClaudeAsk {
             lock.lock(); defer { lock.unlock() }
             buffer.append(chunk)
             while let nl = buffer.firstIndex(of: 0x0A) {
-                let line = buffer[buffer.startIndex..<nl]
+                let line = Data(buffer[buffer.startIndex..<nl])
                 buffer.removeSubrange(buffer.startIndex...nl)
-                switch ClaudeAsk.event(Data(line)) {
+                if initialize == nil { initialize = ClaudeAsk.initializeAnswer(line) }
+                switch ClaudeAsk.event(line) {
                 case .account(let a): account = a
                 case .limits(let l): limits = l
                 case .error(let id, let text): if id == ClaudeAsk.usageID { usageError = text } else { initializeError = true }
@@ -181,15 +230,40 @@ public enum ClaudeAsk {
 
         func exited() { lock.lock(); ended = true; lock.unlock() }
 
+        /// Its output has ended (it has ended, or is ending, by itself).
+        var outputEnded: Bool { lock.lock(); defer { lock.unlock() }; return ended }
+
+        func finished(status: Int32, signaled: Bool) { lock.lock(); exit = (status, signaled); lock.unlock() }
+
         private var complete: Bool {
             let said = account != nil || initializeError
             return said && (!wantsUsage || limits != nil || usageError != nil)
         }
 
-        func answer(timedOut: Bool) -> Answer {
+        func answer(timedOut: Bool, stop: Stop) -> Answer {
             lock.lock(); defer { lock.unlock() }
-            let end: End = complete ? .answered : ended ? .exited : timedOut ? .timedOut : .exited
-            return Answer(account: account, limits: limits, usageError: usageError, end: end)
+            let end: End = complete ? .answered : ended && stop == .byItself ? .exited : timedOut ? .timedOut : .exited
+            return Answer(account: account, limits: limits, usageError: usageError, end: end, initialize: initialize, stop: stop,
+                          exitStatus: exit?.status, signaled: exit?.signaled ?? false)
         }
+    }
+
+    /// `initialize`'s answer in one output line, its named fields only (`Initialize`); nil for any other line, an error
+    /// answer, or one with neither an account nor a model list.
+    public static func initializeAnswer(_ line: Data) -> Initialize? {
+        guard let o = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], o["type"] as? String == "control_response",
+              let r = o["response"] as? [String: Any], r["request_id"] as? String == initializeID, r["subtype"] as? String != "error",
+              let answer = r["response"] as? [String: Any] else { return nil }
+        let a = answer["account"] as? [String: Any], m = answer["models"] as? [Any]
+        guard a != nil || m != nil else { return nil }
+        let account = a.map { a -> [String: String] in
+            var who: [String: String] = [:]
+            for k in ["email", "organization"] {
+                if let v = (a[k] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty { who[k] = v }
+            }
+            return who
+        }
+        let models = m.map { $0.compactMap { ($0 as? [String: Any])?["value"] as? String } }
+        return Initialize(account: account, models: models)
     }
 }
