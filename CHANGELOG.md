@@ -3,6 +3,26 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
+## 26.11.8
+
+A patch: shared seats in the status record, and the short ask's end and its `initialize` answer for cl_quick (no app
+changes). No source breaks: the record's fields stay, the rest is new API.
+
+- **Behaviour change: an older record's clash no longer hides the split.** cl_audit dropped "one profile per account"
+  (an account may be several profiles': shared seats). `ResolvedAccount.clash` and `clashID` are an older build's,
+  decoded only and never used: `ResolvedAccount.owner` sets `elsewhere: false`, and `ProfileDisplay.of` shows no clash from
+  a record. So a record that carries a clash shows its split (no numbers, no plan) as one without it does, as cl_audit's
+  own copy has it.
+- **The short ask's end** (Runs): `ClaudeAsk.Answer.stop` says which step ended `claude` (`byItself`, `inputClosed`,
+  `terminated` by SIGTERM, `killed` by SIGKILL; the stop runs step by step, each a grace after the last), with its
+  `exitStatus` and `signaled`. `RunningProgram.closeInput()` closes a program's input alone.
+- **`initialize` as it came** (Runs): `ClaudeAsk.Answer.initialize` (`Initialize`: the account object's named fields and
+  the models' values, each nil when absent) and `ClaudeAsk.initializeAnswer(_:)`, so an account without a model list can be
+  checked directly.
+- **Checks:** the core suite gains a record with a clash that still splits; the runs suite the stop step and exit status
+  of each stand-in `claude` (input closed, SIGTERM, one that ignores it and is killed, one that quits) and `initialize` as
+  it came.
+
 ## 26.11.7
 
 MenuRows, a new module: one menu bar account row for both apps (stage 8 of the platform concept, the kit part; no app
