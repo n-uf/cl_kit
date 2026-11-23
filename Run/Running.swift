@@ -71,17 +71,26 @@ public final class RunningProgram {
     /// Writes to its input. False when it is gone or being stopped (the pipe is closed).
     @discardableResult
     public func write(_ data: Data) -> Bool {
-        lock.lock(); let closed = stopping; lock.unlock()
+        lock.lock(); let closed = stopping || inputClosed; lock.unlock()
         guard !closed, process.isRunning else { return false }
         do { try input.fileHandleForWriting.write(contentsOf: data); return true } catch { return false }
     }
+
+    /// Closes its input only (a program reading to the end of its input ends by itself then); nothing more is written.
+    /// `stop` still ends it afterwards.
+    public func closeInput() {
+        lock.lock(); let already = inputClosed; inputClosed = true; lock.unlock()
+        guard !already else { return }
+        try? input.fileHandleForWriting.close()
+    }
+    private var inputClosed = false
 
     /// Ends it: closes its input, asks it to end (SIGTERM), and kills it (SIGKILL) if it is still running `grace` seconds
     /// later. Returns at once; the kill holds the process itself, so the caller may let go of this object right away.
     public func stop(grace: TimeInterval) {
         lock.lock(); let already = stopping; stopping = true; lock.unlock()
         guard !already, process.isRunning else { return }
-        try? input.fileHandleForWriting.close()
+        closeInput()
         process.terminate()
         let p = process
         DispatchQueue.global().asyncAfter(deadline: .now() + grace) {
