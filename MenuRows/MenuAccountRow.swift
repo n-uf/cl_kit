@@ -8,6 +8,16 @@ import ProfileCore
 /// One account in a menu: its address (always whole, hidden or shown by AddressPrivacy when drawn), whether it is the
 /// account in use (the menu's tick), and a compact usage line or a line of the app's own words under it.
 public struct MenuAccountRow: Equatable {
+    /// How the row's leading column marks it, beside the tick of the account in use.
+    public enum Marker: Equatable {
+        /// Nothing (the tick alone marks the account in use).
+        case none
+        /// A hollow lamp: an account standing by (cl_quick's standby look).
+        case hollowLamp
+    }
+
+    /// The app's words before the address, in the same line ("Sign Terminal in to "), or "".
+    public var prefix: String
     /// The account's whole address. The row draws it through AddressPrivacy; it is never in a title or a spoken label
     /// while hidden.
     public var address: String
@@ -16,20 +26,38 @@ public struct MenuAccountRow: Equatable {
     /// The compact usage line under the address, or nil (a standby account isn't read).
     public var usage: MenuUsageLine?
     /// A line of the app's own words under the address when there is no usage line ("Signed out", "Last used yesterday");
-    /// nil: none. Never an address: the row doesn't hide what is in it.
+    /// nil: none. The app's words, never an address: one that names an address anyway is drawn and spoken as "hidden
+    /// address" while addresses are hidden (so are the prefix, the tag and the hint).
     public var note: String?
     /// The app's words right after the address, in the same line (" · standby"), or "".
     public var tag: String
-    /// The app's word at the right of the address line while the pointer is on the row ("Switch…"), or nil.
+    /// The app's word at the right of the address line while the row is lit ("Switch…"), or nil; VoiceOver's help too.
     public var hint: String?
-    /// false: dimmed, never lit, does nothing.
+    /// false: never lit, does nothing, drawn disabled.
     public var enabled: Bool
+    /// A quieter look for an account that isn't the one in use (cl_quick's standby rows: tertiary text). It still lights
+    /// and acts.
+    public var dimmed: Bool
+    /// The leading column's mark.
+    public var marker: Marker
 
-    public init(address: String, inUse: Bool, usage: MenuUsageLine? = nil, note: String? = nil, tag: String = "",
-                hint: String? = nil, enabled: Bool = true) {
-        self.address = address; self.inUse = inUse; self.usage = usage; self.note = note; self.tag = tag; self.hint = hint
-        self.enabled = enabled
+    public init(prefix: String = "", address: String, inUse: Bool, usage: MenuUsageLine? = nil, note: String? = nil,
+                tag: String = "", hint: String? = nil, enabled: Bool = true, dimmed: Bool = false, marker: Marker = .none) {
+        self.prefix = prefix; self.address = address; self.inUse = inUse; self.usage = usage; self.note = note; self.tag = tag
+        self.hint = hint; self.enabled = enabled; self.dimmed = dimmed; self.marker = marker
     }
+}
+
+/// Where a row's leading mark and its address stand, so the rows line up with what's above them in the app's menu (cl_quick's
+/// usage block, a profile menu's name column).
+public struct MenuRowColumns: Equatable {
+    /// The mark's left edge (the tick's right edge sits just before `addressX` instead).
+    public var markerX: CGFloat
+    /// The address's (and the prefix's, the second line's) left edge.
+    public var addressX: CGFloat
+    public init(markerX: CGFloat, addressX: CGFloat) { self.markerX = markerX; self.addressX = addressX }
+    /// A native menu's: the tick in the margin, the text at 14 pt.
+    public static let standard = MenuRowColumns(markerX: 4, addressX: 14)
 }
 
 /// The words a usage line is made of: the app's (or the kit's plain ones, `standard`).
@@ -40,10 +68,16 @@ public struct MenuRowWords: Equatable {
     public var week: String
     /// What a full limit says after its name ("full"); the countdown to its reset follows (TimeWords.countdown).
     public var full: String
+    /// The mark of the account in use, in the margin ("✓").
+    public var tick: String
+    /// What VoiceOver says of the account in use ("selected").
+    public var selected: String
 
-    public init(fiveHour: String, week: String, full: String) { self.fiveHour = fiveHour; self.week = week; self.full = full }
+    public init(fiveHour: String, week: String, full: String, tick: String = "✓", selected: String = "selected") {
+        self.fiveHour = fiveHour; self.week = week; self.full = full; self.tick = tick; self.selected = selected
+    }
 
-    /// Plain short words: "5h 34% · Week 12%", "Week full · 2d 19h".
+    /// Plain short words: "5h 34% · Week 12%", "Week full · 2d 19h", the tick "✓", "selected".
     public static let standard = MenuRowWords(fiveHour: "5h", week: "Week", full: "full")
 }
 
@@ -79,10 +113,11 @@ public struct MenuUsageLine: Equatable {
             return MenuUsageLine(parts: [], full: "\(name) \(words.full)\(left)", grey: display.grey)
         }
         var parts: [Part] = []
-        if display.hasFiveHour, let p = u.fiveHour {
+        // (a number that isn't finite is no number: Int(_:) would trap on it)
+        if display.hasFiveHour, let p = u.fiveHour, p.isFinite {
             parts.append(Part(label: words.fiveHour, percent: Int(p.rounded()), level: display.level(p)))
         }
-        if let p = u.weekly { parts.append(Part(label: words.week, percent: Int(p.rounded()), level: display.level(p))) }
+        if let p = u.weekly, p.isFinite { parts.append(Part(label: words.week, percent: Int(p.rounded()), level: display.level(p))) }
         return parts.isEmpty ? nil : MenuUsageLine(parts: parts, grey: display.grey)
     }
 
