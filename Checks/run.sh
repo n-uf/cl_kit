@@ -2,7 +2,7 @@
 # The one entry point for cl_kit's check suites. Run here, or on an app's vendored copy (Vendor/cl_kit-<tag>/Checks/run.sh):
 # it always checks the tree it is in.
 #
-#   Checks/run.sh [core|runs|auth|claudesignin|nokeychain|addressprivacy|all] [--no-build]
+#   Checks/run.sh [core|runs|auth|claudesignin|nokeychain|addressprivacy|menurows|all] [--no-build]
 #
 #   core          ProfileCore (Core/), compiled against it only: ids, standby, limits, times, levels, parsing, the reader;
 #                 its lint: Foundation only, no app's paths, files, words or global state
@@ -20,6 +20,10 @@
 #   addressprivacy  AddressPrivacy (Privacy/) built on its own and its suite against it alone: a hidden address is the fixed
 #                 stand-in or "hidden address", never part of the real one, in every form; the reveal; the setting as a value.
 #                 Its lint first: Apple's frameworks only, no logging, no app named, imported by no layer
+#   menurows      MenuRows (MenuRows/) built on ProfileCore and AddressPrivacy, its suite against the three: the usage line is
+#                 the display value's, a hidden address is nowhere in a row's words or pixels, only the pointer reveals it,
+#                 the tick, the item. Its lint first: ProfileCore, AddressPrivacy, Foundation and AppKit only, no logging,
+#                 no app named, imported by nothing of ours
 #   all           all of them (the default)
 #
 #   --no-build    run the binaries built by the last run
@@ -40,14 +44,14 @@ LOCK=/private/tmp/cl_kit-build.lock
 suites=(); build=1
 for a in "$@"; do
   case "$a" in
-    core|runs|auth|claudesignin|nokeychain|addressprivacy) suites+=("$a") ;;
-    all) suites+=(core runs auth claudesignin nokeychain addressprivacy) ;;
+    core|runs|auth|claudesignin|nokeychain|addressprivacy|menurows) suites+=("$a") ;;
+    all) suites+=(core runs auth claudesignin nokeychain addressprivacy menurows) ;;
     --no-build) build=0 ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 64 ;;
   esac
 done
-[[ ${#suites[@]} -gt 0 ]] || suites=(core runs auth claudesignin nokeychain addressprivacy)
+[[ ${#suites[@]} -gt 0 ]] || suites=(core runs auth claudesignin nokeychain addressprivacy menurows)
 
 # swiftc through one lock, so parallel runs (this tree and a vendored copy) take turns
 locked() { /usr/bin/lockf -k "$LOCK" "$@"; }
@@ -196,6 +200,46 @@ run_addressprivacy() {
   return $status
 }
 
+# the menurows suite: MenuRows (MenuRows/) built on ProfileCore (the modules above) and AddressPrivacy, testing on, and
+# Checks/menurows/main.swift against the three. Its lint first (a failed lint makes the suite red, the checks still run):
+# MenuRows imports ProfileCore, AddressPrivacy, Foundation and AppKit only, never logs, names no app; nothing of ours
+# imports it.
+run_menurows() {
+  local lint=0 n=0 f bad
+  for f in "$kit_root"/MenuRows/*.swift; do
+    n=$((n + 3))
+    bad="$(grep -n -E '^[[:space:]]*(@[A-Za-z_]+(\([^)]*\))?[[:space:]]+)*import[[:space:]]' "$f" \
+      | grep -v -E '^[0-9]+:[[:space:]]*import (Foundation|AppKit|ProfileCore|AddressPrivacy)[[:space:]]*$' || true)"
+    [[ -z "$bad" ]] || { echo "FAIL menurows lint: $f imports more than ProfileCore, AddressPrivacy and Apple's AppKit: $bad"; lint=1; }
+    bad="$(grep -n -E '\b(NSLog|os_log|Logger\(|print\()' "$f" | grep -v -E '^[0-9]+: *//' || true)"
+    [[ -z "$bad" ]] || { echo "FAIL menurows lint: $f logs: $(printf '%s' "$bad" | head -2)"; lint=1; }
+    bad="$(grep -n -i -E 'cl_audit|cl_quick|cl-audit|cl-quick|usage-n-uf' "$f" | grep -v -E '^[0-9]+: *//' || true)"
+    [[ -z "$bad" ]] || { echo "FAIL menurows lint: $f names an app: $(printf '%s' "$bad" | head -2)"; lint=1; }
+  done
+  n=$((n + 1))
+  bad="$(grep -n -E '^[[:space:]]*(@[A-Za-z_]+(\([^)]*\))?[[:space:]]+)*import[[:space:]]+([a-z]+[[:space:]]+)?MenuRows([^A-Za-z0-9_]|$)' \
+    "$kit_root"/Core/*.swift "$kit_root"/Run/*.swift "$kit_root"/Auth/*.swift "$kit_root"/Privacy/*.swift || true)"
+  [[ -z "$bad" ]] || { echo "FAIL menurows lint: a module of ours imports MenuRows: $bad"; lint=1; }
+  [[ $lint -ne 0 ]] || echo "menurows lint: $n/$n (ProfileCore, AddressPrivacy and AppKit only, no logging, no app named, imported by nothing of ours)"
+  local mods="$WORK/menurows/modules" bin="$WORK/menurows/cl_kit-checks-menurows" mlink=()
+  mkdir -p "$WORK/menurows"
+  if [[ $build -eq 1 ]]; then
+    rm -rf "$mods" "$bin"; mkdir -p "$mods"
+    cp -R "$MODS"/ProfileCore.swiftmodule "$MODS"/libProfileCore.a "$mods"/
+    locked bash -c '. "$1/scripts/modules.sh"; kit_build_privacy "$2" -Onone && kit_build_menurows "$2" -Onone -enable-testing' \
+      _ "$kit_root" "$mods" || { echo "compile failed: AddressPrivacy or MenuRows" >&2; return 1; }
+    while IFS= read -r f; do mlink+=("$f"); done < <(kit_menurows_link "$mods")
+    while IFS= read -r f; do mlink+=("$f"); done < <(kit_privacy_link "$mods")
+    locked swiftc -Onone -swift-version 5 -target "$kit_target" -o "$bin" "$HERE/menurows/main.swift" "${mlink[@]}" \
+      -lProfileCore || true
+  fi
+  [[ -x "$bin" ]] || { echo "compile failed: $bin" >&2; return 1; }
+  local status=0
+  run_binary menurows "$bin" || status=$?
+  [[ $lint -eq 0 ]] || status=1
+  return $status
+}
+
 status=0; failed=()
 for s in "${suites[@]}"; do
   echo "── $s"
@@ -203,6 +247,7 @@ for s in "${suites[@]}"; do
     claudesignin) run_claudesignin ;;
     nokeychain) run_nokeychain ;;
     addressprivacy) run_addressprivacy ;;
+    menurows) run_menurows ;;
     *) run_simple "$s" ;;
   esac
   [[ $? -eq 0 ]] || { status=1; failed+=("$s"); }
