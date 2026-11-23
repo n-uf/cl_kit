@@ -38,7 +38,7 @@ public enum ClaudeAsk {
     public enum End: Equatable {
         /// Every answer asked for came (an error answer to `get_usage` counts: it said no).
         case answered
-        /// The time ran out first.
+        /// The time ran out first (an answer read only after the stop is kept in `Answer`, the end still this).
         case timedOut
         /// `claude` ended before answering.
         case exited
@@ -96,7 +96,9 @@ public enum ClaudeAsk {
     /// `folder`: where it runs, a folder (made by the caller: never made here). `usage`: ask `get_usage` too. Ends on every answer asked for, on `claude`'s end, or
     /// after `timeout`; then `claude` is stopped step by step, each step `grace` after the last one: its input closed, then
     /// SIGTERM, then SIGKILL (`Answer.stop` says which step ended it, `exitStatus` how). SIGTERM comes only a grace after
-    /// the input closed. Blocks up to `timeout` + 2 × `grace` + 2 s (the kill's end waited for): off the main thread.
+    /// the input closed. After a timeout, the output is read for up to one more grace once it is stopped (a line it wrote as
+    /// it ended is kept; the answer still says timed out). Blocks up to `timeout` + 3 × `grace` + 2 s in the worst case
+    /// (the input closed, SIGTERM, the kill's end waited for 2 s, the last output read): off the main thread.
     public static func ask(claude: String, environment: [String: String], folder: String, usage: Bool,
                            timeout: TimeInterval = 25, grace: TimeInterval = 1.5) -> Answer {
         var isFolder: ObjCBool = false
@@ -106,9 +108,9 @@ public enum ClaudeAsk {
         for (k, v) in ClaudeEnvironment.traceless { env[k] = v }
         let run = RunningProgram(Program(claude, arguments, environment: env, folder: .at(folder), timeout: .infinity))
         let state = Collected(wantsUsage: usage)
-        let done = DispatchSemaphore(value: 0), ended = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0), ended = DispatchSemaphore(value: 0), outputEnd = DispatchSemaphore(value: 0)
         run.onOutput = { chunk in
-            guard let chunk else { state.exited(); done.signal(); return }
+            guard let chunk else { state.exited(); done.signal(); outputEnd.signal(); return }
             if state.take(chunk) { done.signal() }
         }
         // its end as the process ends, not as its output ends (something it started may hold the output open)
@@ -138,6 +140,9 @@ public enum ClaudeAsk {
                 }
             }
         }
+        // after a timeout, the last of its output, briefly: what it wrote as it ended is read (never past one grace: a
+        // grandchild may hold the output open)
+        if timedOut { _ = outputEnd.wait(timeout: .now() + g) }
         return state.answer(timedOut: timedOut, stop: stop)
     }
 
@@ -249,7 +254,8 @@ public enum ClaudeAsk {
 
         func answer(timedOut: Bool, stop: Stop) -> Answer {
             lock.lock(); defer { lock.unlock() }
-            let end: End = complete ? .answered : ended && stop == .byItself ? .exited : timedOut ? .timedOut : .exited
+            // (timed out stays timed out: answers read only after the stop are kept, but came too late)
+            let end: End = timedOut ? .timedOut : complete ? .answered : .exited
             return Answer(account: account, limits: limits, usageError: usageError, end: end, initialize: initialize, stop: stop,
                           exitStatus: exit?.status, signaled: exit?.signaled ?? false)
         }
