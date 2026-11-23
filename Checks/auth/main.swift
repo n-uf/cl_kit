@@ -378,8 +378,25 @@ do {
     check(AccountSources.folderRecordFiles(def) == [h + "/.claude.json", h + "/.claude/backups/.claude.json.backup.1", h + "/.claude.json.backup.1700000000"]
           && AccountSources.folderRecordFiles(work) == [h + "/.claude-work/.claude.json"],
           "a folder's record and its backups (the default folder's in the home folder too), names only")
-    check(AccountSources.claudeFolders(home: h) == ["~/.claude", "~/.claude-notes", "~/.claude-switch", "~/.claude-work"],
-          "the Claude Code folders in a home: ~/.claude first, then ~/.claude-*, never a link to one")
+    check(AccountSources.claudeFolders(home: h) == ["~/.claude", "~/.claude-linked", "~/.claude-notes", "~/.claude-work"],
+          "the Claude Code folders in a home: ~/.claude first, then ~/.claude-*, a link to a folder too; never ~/.claude-switch")
+    // a linked default folder (a dotfiles set-up): found, and it is the default folder, its backups read through the link
+    let h2 = home + "/finding-linked"
+    mkdir(h2 + "/dotfiles/claude/backups"); mkdir(h2 + "/real-work")
+    try? fm.createSymbolicLink(atPath: h2 + "/.claude", withDestinationPath: h2 + "/dotfiles/claude")
+    try? fm.createSymbolicLink(atPath: h2 + "/.claude-work", withDestinationPath: h2 + "/real-work")
+    write(h2 + "/.claude-file", "not a folder")
+    record(h2 + "/dotfiles/claude/backups/.claude.json.backup", email: "wu@example.com", account: wu, org: personal)
+    let linkedDefault = AuthFolder(path: "~/.claude", home: h2)
+    check(AccountSources.claudeFolders(home: h2) == ["~/.claude", "~/.claude-work"] && linkedDefault.isDefault
+          && AccountSources.folderRecordFiles(linkedDefault) == [h2 + "/.claude.json", h2 + "/.claude/backups/.claude.json.backup"],
+          "a linked ~/.claude and ~/.claude-*: found (never a file); the linked default folder's backups through the link")
+    // backups by their exact names
+    check(AccountSources.isBackupName(".claude.json.backup") && AccountSources.isBackupName(".claude.json.backup.1700000000123")
+          && !AccountSources.isBackupName(".claude.json.backup.") && !AccountSources.isBackupName(".claude.json.backup.old")
+          && !AccountSources.isBackupName(".claude.json.backupX") && !AccountSources.isBackupName(".claude.json.backup.1.2")
+          && !AccountSources.isBackupName(".claude.json") && !AccountSources.isBackupName(".claude.json.backup.١٢٣"),
+          "a backup's name: .claude.json.backup, or that, a dot and ASCII digits; nothing else")
     let homeFiles = AccountSources.homeRecordFiles(home: h)
     check(homeFiles.contains(h + "/.claude.json") && homeFiles.contains(h + "/.claude-work/.claude.json")
           && homeFiles.contains(h + "/.claude-switch/accounts/alt/.claude.json") && homeFiles.contains(h + "/.claude-linked/.claude.json"),
@@ -390,8 +407,20 @@ do {
           && own[1].source == .backup && own[2].organizationID == team,
           "the records' named fields: the id in its normal form, a backup told apart")
     let all = AccountSources.records(homeFiles)
-    check(!all.contains { $0.path.hasSuffix(".claude-notes/.claude.json") } && all.allSatisfy { AccountSources.isUUID($0.accountID) },
-          "a record whose account id isn't UUID-shaped names no account (and no token is ever kept: no such field)")
+    let notes = all.first { $0.path.hasSuffix(".claude-notes/.claude.json") }
+    check(notes?.accountID == "not-an-id" && notes?.email == "wu@example.com" && notes?.seat == nil,
+          "a record whose account id isn't UUID-shaped: kept with its address and plan (as cl_audit kept them), naming no seat; no token field exists")
+    var odd = FoundAccounts(all.filter { $0.accountID == "not-an-id" })
+    odd.add([FoundAccount(accountID: zed, organizationID: uuid(254), organizationType: "claude_max", source: .record, path: "r1")!,
+             FoundAccount(accountID: zed, organizationID: uuid(254), organizationName: "Later Name", source: .record, path: "r2")!,
+             FoundAccount(accountID: uuid(205), plan: " Max ", source: .record, path: "r3")!])
+    check(odd.emails["not-an-id"] == "wu@example.com" && odd.seats == [SeatID(account: zed, organization: uuid(254))]
+          && odd.organizationTypes[uuid(254)] == "claude_max" && odd.organizationNames[uuid(254)] == nil
+          && odd.plans[uuid(205)] == " Max " && odd.idsAlone.isEmpty && odd.accounts == ["not-an-id", zed, uuid(205)],
+          "an organisation's name and type from one record (a type without a name keeps no later name); a plan as written; a record with no organisation is never an id alone; accounts in the order seen")
+    check(FoundAccount(accountID: "", source: .record, path: "x") == nil
+          && FoundAccount(accountID: uuid(206).uppercased(), organizationID: "", source: .record, path: "x")?.organizationID == nil,
+          "a sighting needs an account id; an empty organisation is none; ids in their normal form")
     var found = FoundAccounts(own)
     found.add(AccountSources.records([work.recordPath]))
     check(found.seats == [SeatID(account: wu, organization: personal), SeatID(account: zed, organization: uuid(253)), SeatID(account: wu, organization: team)]
@@ -413,6 +442,23 @@ do {
           "the desktop app's sessions: UUID-named pairs, the last entry's date; an agent session's address")
     check(AccountSources.isEntryName("local_\(uuid(301)).json") && !AccountSources.isEntryName("notes.txt") && AccountSources.appSessions(dataDir: h + "/none").isEmpty,
           "entries by name; no data folder, no sessions")
+    // agent records: bounded (1 MB by default), never through a link, never opened for an address already known
+    let agent2 = data + "/local-agent-mode-sessions/\(uuid(207))/\(uuid(257))"
+    mkdir(agent2)
+    write(agent2 + "/big.json", #"{"emailAddress":"wu@example.com","pad":""# + String(repeating: "x", count: 2 << 20) + "\"}")
+    write(h + "/outside.json", #"{"emailAddress":"zedekiah@example.com"}"#)
+    try? fm.createSymbolicLink(atPath: agent2 + "/linked.json", withDestinationPath: h + "/outside.json")
+    let s2 = AccountSources.appSessions(dataDir: data).first { $0.accountID == uuid(207) }
+    check(s2 != nil && s2?.email == nil, "an agent record over 1 MB isn't opened, a linked one is never followed: no address")
+    check(AccountSources.appSessions(dataDir: data, knownAddresses: [zed.uppercased()]).first { $0.accountID == zed }?.email == nil
+          && AccountSources.appSessions(dataDir: data, records: -1).first { $0.accountID == zed }?.email == nil
+          && AccountSources.appSessions(dataDir: data, max: -5).first { $0.accountID == zed }?.email == nil
+          && AccountSources.appSessions(dataDir: data, max: 1 << 10).first { $0.accountID == zed }?.email == "zedekiah@example.com",
+          "an account whose address is known: its records never opened; a negative count or size opens none; a small one still reads a small record")
+    mkdir(h + "/AppDataRootLink")
+    try? fm.createSymbolicLink(atPath: h + "/AppDataRootLink/claude-code-sessions", withDestinationPath: data + "/claude-code-sessions")
+    check(AccountSources.appSessions(dataDir: h + "/AppDataRootLink").isEmpty,
+          "a session root that is a link is never followed")
 
     // transcripts (an option: cl_audit's; it reads chats)
     mkdir(h + "/.claude-work/projects/p1")
@@ -425,8 +471,26 @@ do {
           && Date().timeIntervalSince(t) < 2, "transcripts: ids alone, from each one's first 64 KB only, a FIFO skipped at once")
     found.add(ids)
     check(found.idsAlone.isEmpty && found.accounts == [wu, zed], "an id alone already seen by a seat adds nothing")
-    found.add([FoundAccount(accountID: uuid(210), source: .transcript, path: "x")])
+    found.add([FoundAccount(accountID: uuid(210), source: .transcript, path: "x")!])
     check(found.idsAlone == [uuid(210)] && found.accounts.last == uuid(210), "a new id alone is kept apart (no organisation known)")
+    // the cap and the head with other transcripts present; links never followed out of the folder; negative sizes
+    let p2 = h + "/.claude-work/projects/p2"
+    mkdir(p2)
+    write(p2 + "/newest.jsonl", #"{"accountUuid":"\#(uuid(211))"}"#)
+    try? fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_900_000_000)], ofItemAtPath: p2 + "/newest.jsonl")
+    check(AccountSources.transcriptAccounts(folder: work, cap: 1).map(\.accountID) == [uuid(211)],
+          "the cap: only the newest transcripts are read")
+    check(Set(AccountSources.transcriptAccounts(folder: work, head: 70).map(\.accountID)) == [uuid(211), zed]
+          && AccountSources.transcriptAccounts(folder: work, cap: -1).isEmpty && AccountSources.transcriptAccounts(folder: work, head: -1).isEmpty,
+          "the head: only the first bytes of each, whatever else is there; a negative cap or head reads nothing")
+    mkdir(h + "/elsewhere/p")
+    write(h + "/elsewhere/p/x.jsonl", #"{"accountUuid":"\#(uuid(212))"}"#)
+    write(h + "/elsewhere/y.jsonl", #"{"accountUuid":"\#(uuid(213))"}"#)
+    try? fm.createSymbolicLink(atPath: h + "/.claude-work/projects/linked", withDestinationPath: h + "/elsewhere/p")
+    try? fm.createSymbolicLink(atPath: p2 + "/linked.jsonl", withDestinationPath: h + "/elsewhere/y.jsonl")
+    let after = Set(AccountSources.transcriptAccounts(folder: work).map(\.accountID))
+    check(!after.contains(uuid(212)) && !after.contains(uuid(213)) && after.contains(uuid(211)),
+          "a linked project folder or transcript is never followed out of the folder")
     check(RecordFile.head(h + "/.claude-work/projects/p1/late.jsonl", bytes: 10)?.count == 10 && RecordFile.head(h + "/none", bytes: 10) == nil,
           "RecordFile.head: the first bytes whatever the size; nothing for a file that isn't there")
 }
