@@ -58,8 +58,16 @@ in step 1, nor in step 2 beyond the widget now following the headline exactly.
   shows an older, dated full grey as "last known" until its reset. `AtLimit.full(_:resets:readAt:mode:)` has both
   (`.acts(freshFor:)`, `.display`), and the headline's `Ages` carries the tiers as parameters:
   - cl_quick: `freshFor` 5 minutes, `hiddenAfter` an hour, `datedFullStays` on (5 to 60 minutes grey "last known";
-    `greyAfter` none, so `ProfileDisplay` greys as soon as numbers are last known). Past the hour only a dated full limit
-    still shows, grey, until its reset however old the reading (`Headline.Answer.datedFullOnly`; 26.11.5);
+    `greyAfter` none, so `ProfileDisplay` greys as soon as numbers are last known). Since 26.11.5, for callers that keep
+    dated fulls only: a dateless 100% between 5 and 60 minutes shows as a grey last-known 100% with no reset (never acting,
+    never `full`); past the hour only a dated full limit still shows, grey, until its reset however old the reading
+    (`Headline.Answer.datedFullOnly`, followed by `Answer.limit`, `ProfileDisplay.make` and `StatusRecord.shown`, so
+    `usage` is then that limit only and `none` nil), and `ProfileDisplay.heldBack` keeps a refusal with a known end the same
+    way. `ProfileDisplay.hasFiveHour` is the week-only rule (`Usage.hasFiveHour`, cl_quick's exact form) from the raw read;
+    `AtLimit.heldBack` takes cl_quick's refusal window (the one the numbers leave; `any` when both are known; the refusal's
+    own only when neither is). Not taken yet (the reader's rules): a rate-limit event's `used × 100` clamped to 0…100,
+    `get_usage`'s `locked_reason` as a refusal, and the refusal lift (cl_quick: every window given below 100; the kit: the
+    refusing window has room);
   - cl_audit (`StatusAges` in `Sources/StatusRecord.swift`, one formula for `Store.ages` and the widget): `freshFor` the
     profile's read interval (5 minutes at least) plus a minute, so 6 minutes by default; `greyAfter` three read intervals,
     30 minutes at least (the Dock icon's old rule; since step 3a the menu bar greys by it too, and the dashboard card
