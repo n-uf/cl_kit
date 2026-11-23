@@ -14,6 +14,8 @@ public struct MenuAccountRow: Equatable {
         case none
         /// A hollow lamp: an account standing by (cl_quick's standby look).
         case hollowLamp
+        /// A "+": a row that adds an account rather than naming one (`MenuAccountRow.add`).
+        case plus
     }
 
     /// The app's words before the address, in the same line ("Sign Terminal in to "), or "".
@@ -40,12 +42,24 @@ public struct MenuAccountRow: Equatable {
     public var dimmed: Bool
     /// The leading column's mark.
     public var marker: Marker
+    /// Waiting for something (cl_quick's row while a switch or a sign-in is under way): extra-faint text, fainter than a
+    /// disabled row's. It acts as `enabled` says; a waiting row is usually not enabled too.
+    public var waiting: Bool
 
     public init(prefix: String = "", address: String, inUse: Bool, usage: MenuUsageLine? = nil, note: String? = nil,
-                tag: String = "", hint: String? = nil, enabled: Bool = true, dimmed: Bool = false, marker: Marker = .none) {
+                tag: String = "", hint: String? = nil, enabled: Bool = true, dimmed: Bool = false, marker: Marker = .none,
+                waiting: Bool = false) {
         self.prefix = prefix; self.address = address; self.inUse = inUse; self.usage = usage; self.note = note; self.tag = tag
-        self.hint = hint; self.enabled = enabled; self.dimmed = dimmed; self.marker = marker
+        self.hint = hint; self.enabled = enabled; self.dimmed = dimmed; self.marker = marker; self.waiting = waiting
     }
+
+    /// A row that names no account: a "+" in the leading column and the app's words where the address would stand
+    /// ("Add an account…"), with the same metrics as the account rows and a pick like theirs.
+    public static func add(_ words: String, hint: String? = nil, enabled: Bool = true, waiting: Bool = false) -> MenuAccountRow {
+        MenuAccountRow(prefix: words, address: "", inUse: false, hint: hint, enabled: enabled, marker: .plus, waiting: waiting)
+    }
+    /// The row names no account (`add`): no address to draw, hide or speak.
+    public var addressLess: Bool { address.isEmpty }
 }
 
 /// Where a row's leading mark and its address stand, so the rows line up with what's above them in the app's menu (cl_quick's
@@ -56,6 +70,11 @@ public struct MenuRowColumns: Equatable {
     /// The address's (and the prefix's, the second line's) left edge.
     public var addressX: CGFloat
     public init(markerX: CGFloat, addressX: CGFloat) { self.markerX = markerX; self.addressX = addressX }
+    /// The address's column alone: the mark stands `markerGap` before it (a 7 pt lamp and 6 pt of room), never closer to
+    /// the edge than the standard 4 pt. `MenuRowColumns(addressX: 14)` is `standard`; 27 puts the mark at 14 (cl_quick).
+    public init(addressX: CGFloat) { self.init(markerX: max(4, addressX - Self.markerGap), addressX: addressX) }
+    /// How far the mark stands before the address when only the address's column is given.
+    public static let markerGap: CGFloat = 13
     /// A native menu's: the tick in the margin, the text at 14 pt.
     public static let standard = MenuRowColumns(markerX: 4, addressX: 14)
 }
