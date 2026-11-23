@@ -450,7 +450,7 @@ do {
     try? fm.createSymbolicLink(atPath: agent2 + "/linked.json", withDestinationPath: h + "/outside.json")
     let s2 = AccountSources.appSessions(dataDir: data).first { $0.accountID == uuid(207) }
     check(s2 != nil && s2?.email == nil, "an agent record over 1 MB isn't opened, a linked one is never followed: no address")
-    check(AccountSources.appSessions(dataDir: data, knownAddresses: [zed.uppercased()]).first { $0.accountID == zed }?.email == nil
+    check(AccountSources.appSessions(dataDir: data, knownAccounts: [zed.uppercased()]).first { $0.accountID == zed }?.email == nil
           && AccountSources.appSessions(dataDir: data, records: -1).first { $0.accountID == zed }?.email == nil
           && AccountSources.appSessions(dataDir: data, max: -5).first { $0.accountID == zed }?.email == nil
           && AccountSources.appSessions(dataDir: data, max: 1 << 10).first { $0.accountID == zed }?.email == "zedekiah@example.com",
