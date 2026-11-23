@@ -137,10 +137,16 @@ public enum Headline {
                 return Limit(percent: c.percent, resets: c.resets, lastKnown: true)
             }
             guard numbers(split: split) else { return nil }
-            // a full limit that may not act: left out, or kept as last known while its known reset is ahead
+            // a full limit that may not act: left out, or (a caller that keeps dated fulls) kept as last known while its
+            // known reset is ahead; a dateless one only last known (before hiddenAfter), with no reset to say
             let heldFull = AtLimit.isFull(c.percent) && !acts
             if heldFull {
-                guard datedFullStays, AtLimit.full(c.percent, resets: c.resets, readAt: readAt, mode: .display, now: now) else { return nil }
+                guard datedFullStays else { return nil }
+                if AtLimit.full(c.percent, resets: c.resets, readAt: readAt, mode: .display, now: now) {
+                    return Limit(percent: c.percent, resets: c.resets, lastKnown: true)
+                }
+                guard c.resets == nil, age == .lastKnown else { return nil }
+                return Limit(percent: c.percent, resets: nil, lastKnown: true)
             }
             return Limit(percent: c.percent, resets: c.resets, lastKnown: age == .lastKnown || heldFull)
         }
