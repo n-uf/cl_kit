@@ -465,6 +465,15 @@ do {
                                  environment: env, folder: work, usage: true, timeout: 1, grace: 0.5)
     check(stubborn.end == .timedOut && stubborn.stop == .killed && stubborn.signaled && stubborn.exitStatus == SIGKILL
           && Date().timeIntervalSince(t) < 6, "one that ignores SIGTERM: killed (SIGKILL), said so")
+    // one that answers only as it ends (once its input closes): the ask timed out, but what it wrote then is read and kept
+    let late = standIn("claude-late", """
+        while IFS= read -r line; do :; done
+        printf '%s\\n' '\(initialize)'
+        """)
+    t = Date()
+    let lateAnswer = ClaudeAsk.ask(claude: late, environment: env, folder: work, usage: false, timeout: 1, grace: 0.5)
+    check(lateAnswer.end == .timedOut && lateAnswer.stop == .inputClosed && lateAnswer.account?["email"] == "wu@example.com"
+          && Date().timeIntervalSince(t) < 4, "after a timeout the last output is read: a late answer kept, the end still timed out")
     let refusing = standIn("claude-refuses", """
         while IFS= read -r line; do
           case "$line" in
