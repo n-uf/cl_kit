@@ -141,6 +141,7 @@ public struct ProfileDisplay: Equatable {
             (u.fiveHour, u.fiveHourResets) = limit(u.fiveHour, u.fiveHourResets)
             (u.weekly, u.weeklyResets) = limit(u.weekly, u.weeklyResets)
             u.scoped = u.scoped.map { l in let s = limit(l.percent, l.resets); return ScopedLimit(name: l.name, percent: s.0, resets: s.1) }
+            if !answer.numbers() { u.credits = nil }                                 // the dated full limit only, as StatusRecord.shown
             if u.fiveHour != nil || u.weekly != nil { usage = u }
         }
         let none: NoNumbers? = usage != nil ? nil
@@ -169,13 +170,15 @@ public struct ProfileDisplay: Equatable {
         // what holds it back, from the raw read: any while the numbers act; else (dated fulls kept) only one with a known end
         // still ahead, however old the reading
         let ours = answer.signedIn && !answer.otherReading && answer.split == nil
-        let raw = read.flatMap { u in
-            AtLimit.heldBack(fiveHour: u.fiveHour, fiveHourResets: u.fiveHourResets, weekly: u.weekly, weeklyResets: u.weeklyResets,
-                             refusal: refusal, now: now)
-        } ?? refusal.flatMap { AtLimit.heldBack(fiveHour: nil, fiveHourResets: nil, weekly: nil, weeklyResets: nil, refusal: $0, now: now) }
+        // `dated`: a full number with no reset is left out first (it can't be said to still hold), so it never hides a dated one
+        func held(dated: Bool) -> HeldBack? {
+            func n(_ p: Double?, _ r: Date?) -> Double? { dated && AtLimit.isFull(p) && r == nil ? nil : p }
+            return AtLimit.heldBack(fiveHour: n(read?.fiveHour, read?.fiveHourResets), fiveHourResets: read?.fiveHourResets,
+                                    weekly: n(read?.weekly, read?.weeklyResets), weeklyResets: read?.weeklyResets, refusal: refusal, now: now)
+        }
         let heldBack: HeldBack? = !ours ? nil
-            : answer.acts ? raw
-            : answer.datedFullStays ? raw.flatMap { h in h.resets.map { $0 > now } == true ? h : nil }
+            : answer.acts ? held(dated: false)
+            : answer.datedFullStays ? held(dated: true).flatMap { h in h.resets.map { $0 > now } == true ? h : nil }
             : nil
         return ProfileDisplay(usage: usage, none: none, readAt: readAt, tier: tier, full: full, lamp: lamp, key: key, line: line,
                               clash: clash, split: answer.split, sign: sign, otherAccount: otherAccount, heldBack: heldBack,
