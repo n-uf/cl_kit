@@ -415,6 +415,16 @@ do {
           && limit(decided, 40) == nil, "the split (decided): no numbers, no plan, its read time; the switch waiting carried")
     check(decided.numbers(split: false) && decided.plan(split: false) && limit(decided, 40, split: false)?.percent == 40,
           "…the sign-in's own numbers for its labelled line (split false)")
+    // a caller that names the numbers' own account in the split (cl_audit's "<address> · Terminal"): the numbers show there
+    let owned = Headline.Ages(freshFor: 6 * 60, splitShowsNumbersOwner: true)
+    let namedSplit = answer(Headline.Owner(inUse: pat, signIn: mo, differs: true), ages: owned)
+    check(namedSplit.split != nil && namedSplit.numbers() && namedSplit.plan() && limit(namedSplit, 100, ahead) == Headline.Limit(percent: 100, resets: ahead, lastKnown: false)
+          && namedSplit.acts, "splitShowsNumbersOwner: the split still said, its numbers and plan shown, a fresh full one acting, as the numbers' own account's")
+    let namedOld = answer(Headline.Owner(inUse: pat, signIn: mo, differs: true), age: 10 * 60, ages: owned)
+    check(namedOld.numbers() && !namedOld.acts && limit(namedOld, 100, ahead, age: 10 * 60) == nil && limit(namedOld, 40, age: 10 * 60)?.lastKnown == true,
+          "...and by the same age rules: 10 minutes old last known, a full one left out")
+    check(!answer(Headline.Owner(inUse: pat, signIn: mo, differs: true)).numbers() && Headline.Ages(freshFor: 60).splitShowsNumbersOwner == false,
+          "off by default: the split shows no numbers")
     check(answer(Headline.Owner(inUse: pat, signIn: pat, differs: true)).split != nil && answer(Headline.Owner(inUse: pat, signIn: mo, differs: false)).split == nil,
           "a decided answer wins over the identities")
     check(answer(Headline.Owner(inUse: pat, signIn: mo)).split == Headline.Split(switchWaits: false)
@@ -1144,6 +1154,21 @@ do {
           && StatusCodec.decode(StatusCodec.encode(clashedRecord) ?? Data())?.resolved?.clashID == "home",
           "an older record's clash: decoded, never used: the split still shows (no clash, no numbers)")
     check(face(record(login: bob, resolved: clashed)) == splitFace, "...and the picture is the split's, as without the clash")
+    // the split for a caller that names the numbers' own account (splitShowsNumbersOwner): its numbers, level, grey and full
+    let named = StatusAges.of(pollMinutes: 5, splitShowsNumbersOwner: true)
+    let namedSplit = ProfileDisplay.of(record(login: bob, resolved: split), ages: named, source: "reader", now: t0)
+    check(namedSplit.split != nil && namedSplit.none == nil && namedSplit.usage?.fiveHour == 12 && namedSplit.usage?.weekly == 40
+          && namedSplit.level(40) == .green && !namedSplit.grey && namedSplit.full == nil,
+          "splitShowsNumbersOwner: the split still said, its numbers shown (no 'none'), coloured, not grey")
+    let namedFull = ProfileDisplay.of(record(five: 100, fiveIn: 3 * 3600, login: bob, resolved: split), ages: named, source: "reader", now: t0)
+    check(namedFull.full?.kind == .fiveHour && namedFull.heldBack?.window == .fiveHour,
+          "...a fresh full limit there acts as the numbers' own account's (full, held back)")
+    let namedOld = ProfileDisplay.of(record(age: 40 * 60, login: bob, resolved: split), ages: named, source: "reader", now: t0)
+    check(namedOld.grey && namedOld.usage?.weekly == 40, "...old numbers there grey, as anywhere")
+    check(ProfileDisplay.of(record(login: bob, resolved: clashed), ages: named, source: "reader", now: t0).usage?.weekly == 40,
+          "...an older record's clash changes nothing there either")
+    check(ProfileDisplay.of(record(login: bob, resolved: split), ages: StatusAges.of(pollMinutes: 5), source: "reader", now: t0).usage == nil,
+          "off (the default): the split shows no numbers, as before")
     let out = face(record(state: "noLogin", resolved: own))
     check(out.fiveHour == nil && out.weekly == nil && out.grey, "signed out: no numbers, grey")
     check(face(record(login: bob, expected: ann)).otherAccount, "signed in to another account than the folder names: the warning")
