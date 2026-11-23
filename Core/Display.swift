@@ -123,7 +123,8 @@ public struct ProfileDisplay: Equatable {
         let readAt = answer.readTime ? read?.fetchedAt : nil
         // the numbers: each limit as the answer lets it show
         var usage: Usage? = nil
-        if answer.numbers(), var u = read {
+        // (past hiddenAfter, a dated full limit still shows when the caller keeps dated fulls: Headline.Answer.datedFullOnly)
+        if answer.numbers() || answer.datedFullOnly(), var u = read {
             func limit(_ p: Double?, _ resets: Date?) -> (Double?, Date?) {
                 answer.limit(p, resets: resets, readAt: u.fetchedAt, now: now).map { ($0.percent, $0.resets) } ?? (nil, nil)
             }
