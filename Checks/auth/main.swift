@@ -249,6 +249,18 @@ do {
     check((try? JSONDecoder().decode(AccountKey.self, from: savedUpper)) == AccountKey(wuTeam)
           && (try? JSONDecoder().decode(AccountKey.self, from: JSONEncoder().encode(placeholder!))) == placeholder,
           "a saved key read back: in lower case, its round trip unchanged")
+    // a key with an id holds no address: the address the app saved beside it is added for the comparison
+    let teamKey = AccountKey(wuTeam)!
+    check(teamKey.identity.email == nil && teamKey.identity(email: "wu@example.com").email == "wu@example.com"
+          && teamKey.identity(email: "wu@example.com").accountID == wuID && teamKey.identity(email: " ").email == nil
+          && placeholder!.identity(email: "zedekiah@example.com").email == "wu@example.com",
+          "identity(email:): the saved address beside an id key; an empty one is none; a placeholder keeps its own")
+    check(teamKey.match(word("wu@example.com", "Example Team")) == .different
+          && teamKey.match(word("wu@example.com", "Example Team"), email: "wu@example.com") == .seatNotKnown
+          && teamKey.match(word("zedekiah@example.com", "Example Team"), email: "wu@example.com") == .different
+          && AccountKey(account: wuID, organization: AccountKey.namePrefix + "example team")
+               .match(word("WU@example.com", "EXAMPLE TEAM"), email: "wu@example.com") == .seat,
+          "match(_:email:): a running claude's word (no id) compared with an id key by its saved address; the organisation by name where the key keeps one")
     check(AccountKey(account: AccountKey.addressPrefix + "wu@example.com", organization: AccountKey.namePrefix + "example team")
             .upgraded(with: wuTeam) == AccountKey(wuTeam)
           && AccountKey(account: wuID, organization: AccountKey.namePrefix + "example team").upgraded(with: wuPersonal) == nil,
