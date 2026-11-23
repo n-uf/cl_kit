@@ -169,7 +169,8 @@ public struct ProfileDisplay: Equatable {
         let line: Line? = answer.unconfirmed ? .unconfirmed : answer.split.map { Line.split($0) } ?? note.map { Line.given($0) }
         // what holds it back, from the raw read: any while the numbers act; else (dated fulls kept) only one with a known end
         // still ahead, however old the reading
-        let ours = answer.signedIn && !answer.otherReading && answer.split == nil
+        // (in the split, the numbers' own account's when the caller names it: Ages.splitShowsNumbersOwner)
+        let ours = answer.signedIn && !answer.otherReading && (answer.split == nil || answer.splitShowsNumbersOwner)
         // `dated`: a full number with no reset is left out first (it can't be said to still hold), so it never hides a dated one
         func held(dated: Bool) -> HeldBack? {
             func n(_ p: Double?, _ r: Date?) -> Double? { dated && AtLimit.isFull(p) && r == nil ? nil : p }

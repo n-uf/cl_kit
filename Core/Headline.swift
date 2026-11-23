@@ -36,9 +36,15 @@ public enum Headline {
         /// Numbers older than this are drawn grey (stale); nil, or a value below `freshFor`: as soon as they are only last
         /// known (older than `freshFor`). ProfileDisplay's tier; the answer itself doesn't use it.
         public var greyAfter: TimeInterval?
+        /// In the split, the numbers still show, as their own account's: for a caller that names that account beside them
+        /// (cl_audit's "<address> · Terminal"). The split is still said (`Answer.split`); the numbers, the plan, their level,
+        /// grey and full keep the rules for the numbers' own account. false (the default): the split shows no numbers.
+        public var splitShowsNumbersOwner: Bool
 
-        public init(freshFor: TimeInterval, hiddenAfter: TimeInterval? = nil, datedFullStays: Bool = false, greyAfter: TimeInterval? = nil) {
+        public init(freshFor: TimeInterval, hiddenAfter: TimeInterval? = nil, datedFullStays: Bool = false, greyAfter: TimeInterval? = nil,
+                    splitShowsNumbersOwner: Bool = false) {
             self.freshFor = freshFor; self.hiddenAfter = hiddenAfter; self.datedFullStays = datedFullStays; self.greyAfter = greyAfter
+            self.splitShowsNumbersOwner = splitShowsNumbersOwner
         }
     }
 
@@ -104,18 +110,26 @@ public enum Headline {
         public var signedIn: Bool
         public var age: Age
         public var datedFullStays: Bool
+        /// The caller names the numbers' own account (Ages.splitShowsNumbersOwner): the split hides no numbers.
+        public var splitShowsNumbersOwner: Bool
 
-        public init(otherReading: Bool, split: Split?, unconfirmed: Bool, signedIn: Bool, age: Age, datedFullStays: Bool) {
+        public init(otherReading: Bool, split: Split?, unconfirmed: Bool, signedIn: Bool, age: Age, datedFullStays: Bool,
+                    splitShowsNumbersOwner: Bool = false) {
             self.otherReading = otherReading; self.split = split; self.unconfirmed = unconfirmed; self.signedIn = signedIn
-            self.age = age; self.datedFullStays = datedFullStays
+            self.age = age; self.datedFullStays = datedFullStays; self.splitShowsNumbersOwner = splitShowsNumbersOwner
         }
 
-        /// Any numbers at all (`split` false: the sign-in's own numbers, for a line that names them as its).
+        /// The split hides the numbers here: asked about the split (`split` true), there is one, and the caller doesn't
+        /// name the numbers' own account.
+        func hiddenBySplit(_ split: Bool) -> Bool { split && self.split != nil && !splitShowsNumbersOwner }
+
+        /// Any numbers at all (`split` false: the sign-in's own numbers, for a line that names them as its; with
+        /// `splitShowsNumbersOwner`, the split never hides them).
         public func numbers(split: Bool = true) -> Bool {
-            signedIn && !otherReading && !(split && self.split != nil) && age != .hidden
+            signedIn && !otherReading && !hiddenBySplit(split) && age != .hidden
         }
         /// The plan may show (it is the reading's account's).
-        public func plan(split: Bool = true) -> Bool { !otherReading && !(split && self.split != nil) }
+        public func plan(split: Bool = true) -> Bool { !otherReading && !hiddenBySplit(split) }
         /// When the numbers were read may show.
         public var readTime: Bool { !otherReading }
         /// The numbers may act: a full limit is full (a full face, an offer, an alert).
@@ -124,7 +138,7 @@ public enum Headline {
         /// Past `hiddenAfter`, only a dated full limit may still show (the caller keeps dated fulls): `numbers()` is false,
         /// and `limit` gives only such a full limit, as last known.
         public func datedFullOnly(split: Bool = true) -> Bool {
-            age == .hidden && datedFullStays && signedIn && !otherReading && !(split && self.split != nil)
+            age == .hidden && datedFullStays && signedIn && !otherReading && !hiddenBySplit(split)
         }
 
         /// One limit as read (`readAt`: when), as it may show: nil when it shows not at all.
@@ -180,6 +194,7 @@ public enum Headline {
         let other = otherReading(o)
         // (numbers no one's here have no read time either: their age decides nothing)
         return Answer(otherReading: other, split: split(o), unconfirmed: o.unconfirmed, signedIn: signedIn,
-                      age: other ? .undated : age(readAt, now: now, ages: ages), datedFullStays: ages.datedFullStays)
+                      age: other ? .undated : age(readAt, now: now, ages: ages), datedFullStays: ages.datedFullStays,
+                      splitShowsNumbersOwner: ages.splitShowsNumbersOwner)
     }
 }

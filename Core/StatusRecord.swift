@@ -239,9 +239,11 @@ public enum StatusAges {
     /// The read interval as the formula takes it: 1 minute to a day (a broken number never overflows).
     static func minutes(_ m: Int) -> Int { min(max(m, 1), 1440) }
     /// The headline's and the display's thresholds: never hidden by age; a last-known full limit is left out.
-    public static func of(pollMinutes: Int) -> Headline.Ages {
+    /// `splitShowsNumbersOwner`: the caller names the numbers' own account in the split, so the numbers still show there
+    /// (Headline.Ages.splitShowsNumbersOwner).
+    public static func of(pollMinutes: Int, splitShowsNumbersOwner: Bool = false) -> Headline.Ages {
         Headline.Ages(freshFor: freshFor(pollMinutes: pollMinutes), hiddenAfter: nil, datedFullStays: false,
-                      greyAfter: greyAfter(pollMinutes: pollMinutes))
+                      greyAfter: greyAfter(pollMinutes: pollMinutes), splitShowsNumbersOwner: splitShowsNumbersOwner)
     }
 }
 
