@@ -5,6 +5,8 @@
 #   Runs         Run/*.swift    Foundation only; the one runner, the cleaned environment, the process table
 #   ClaudeAuth   Auth/*.swift   imports ProfileCore and Runs: one folder's Claude Code sign-in, ClaudeSignIn.
 #                               Auth/Keychain.swift is optional: an app that never reads the Keychain builds without it
+#                               (no-keychain), and without Auth/DiscoveryApp.swift too (the sources that read sessions
+#                               and chats: an incognito app ships no chat reader)
 #
 # and on its own, apart from the layers (it imports none of them, and they never import it):
 #
@@ -42,7 +44,8 @@ kit_build() {
   if [ "$keychain" = keychain ]; then
     while IFS= read -r f; do auth+=("$f"); done < <(kit_sources Auth)
   else
-    while IFS= read -r f; do auth+=("$f"); done < <(kit_sources Auth Keychain.swift)
+    # an app that never reads the Keychain (cl_quick, incognito) also ships no session or chat reader
+    while IFS= read -r f; do auth+=("$f"); done < <(kit_sources Auth Keychain.swift DiscoveryApp.swift)
   fi
   mkdir -p "$out"
   rm -f "$out"/libProfileCore.a "$out"/libRuns.a "$out"/libClaudeAuth.a

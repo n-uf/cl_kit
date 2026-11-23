@@ -14,8 +14,9 @@
 #   claudesignin  ClaudeSignIn (Auth/ClaudeSignIn.swift) against a stand-in Terminal and a stand-in `claude auth login`
 #                 (Checks/claudesignin/bin), Terminal's preferences in memory. Lints first: no Keychain, no real Terminal
 #                 preferences
-#   nokeychain    ClaudeAuth built without Auth/Keychain.swift, as an app that never reads the Keychain builds it: it
-#                 compiles, and the libraries name no Security API and no `security` tool
+#   nokeychain    ClaudeAuth built without Auth/Keychain.swift and Auth/DiscoveryApp.swift, as an incognito app that never
+#                 reads the Keychain builds it: it compiles, the libraries name no Security API and no `security` tool, and
+#                 hold no session or chat reader
 #   addressprivacy  AddressPrivacy (Privacy/) built on its own and its suite against it alone: a hidden address is the fixed
 #                 stand-in or "hidden address", never part of the real one, in every form; the reveal; the setting as a value.
 #                 Its lint first: Apple's frameworks only, no logging, no app named, imported by no layer
@@ -140,7 +141,13 @@ run_nokeychain() {
   done
   n=$((n + 1))
   if nm "$out/libClaudeAuth.a" 2>/dev/null | grep -q -E 'KeychainSignIn'; then echo "FAIL nokeychain: ClaudeAuth still has KeychainSignIn"; bad=1; fi
-  [[ $bad -eq 0 ]] && echo "nokeychain: $n passed, 0 failed (ClaudeAuth builds without Auth/Keychain.swift and names no Keychain)"
+  # the same build ships no session or chat reader (Auth/DiscoveryApp.swift left out): an incognito app's
+  n=$((n + 2))
+  if nm "$out/libClaudeAuth.a" 2>/dev/null | grep -q -E 'transcriptAccounts|appSessions'; then
+    echo "FAIL nokeychain: ClaudeAuth still has the transcript or app-session reader"; bad=1; fi
+  if strings "$out/libClaudeAuth.a" | grep -q -E 'local-agent-mode-sessions|claude-code-sessions|accountUuid"\\s'; then
+    echo "FAIL nokeychain: ClaudeAuth still holds the session folders' or transcripts' names"; bad=1; fi
+  [[ $bad -eq 0 ]] && echo "nokeychain: $n passed, 0 failed (ClaudeAuth builds without Auth/Keychain.swift and Auth/DiscoveryApp.swift: no Keychain, no session or chat reader)"
   return $bad
 }
 
