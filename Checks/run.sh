@@ -133,20 +133,28 @@ run_nokeychain() {
     locked bash -c '. "$1/scripts/modules.sh"; kit_build "$2" no-keychain -O' _ "$kit_root" "$out" \
       || { echo "FAIL nokeychain: ClaudeAuth doesn't build without Auth/Keychain.swift"; return 1; }
   fi
+  # each tool's output is captured whole first, then searched: a `tool | grep -q` under pipefail can pass vacuously (an
+  # early match ends grep, the tool dies of SIGPIPE, and the pipeline's status is the tool's); an empty capture is a failure
+  local undefined syms text
   for lib in "$out"/libProfileCore.a "$out"/libRuns.a "$out"/libClaudeAuth.a; do
     [[ -f "$lib" ]] || { echo "FAIL nokeychain: no $lib"; return 1; }
     n=$((n + 2))
-    if nm -u "$lib" 2>/dev/null | grep -q -E '_Sec[A-Z]'; then echo "FAIL nokeychain: $(basename "$lib") calls the Security API"; bad=1; fi
-    if strings "$lib" | grep -q -E '/usr/bin/security|find-generic-password'; then echo "FAIL nokeychain: $(basename "$lib") holds the security tool"; bad=1; fi
+    undefined="$(nm -u "$lib" 2>/dev/null)"; text="$(strings "$lib" 2>/dev/null)"
+    [[ -n "$text" ]] || { echo "FAIL nokeychain: $(basename "$lib") couldn't be read"; bad=1; }
+    if grep -q -E '_Sec[A-Z]' <<<"$undefined"; then echo "FAIL nokeychain: $(basename "$lib") calls the Security API"; bad=1; fi
+    if grep -q -E '/usr/bin/security|find-generic-password' <<<"$text"; then echo "FAIL nokeychain: $(basename "$lib") holds the security tool"; bad=1; fi
   done
+  syms="$(nm "$out/libClaudeAuth.a" 2>/dev/null)"; text="$(strings "$out/libClaudeAuth.a" 2>/dev/null)"
+  [[ -n "$syms" ]] || { echo "FAIL nokeychain: ClaudeAuth's symbols couldn't be read"; bad=1; }
   n=$((n + 1))
-  if nm "$out/libClaudeAuth.a" 2>/dev/null | grep -q -E 'KeychainSignIn'; then echo "FAIL nokeychain: ClaudeAuth still has KeychainSignIn"; bad=1; fi
-  # the same build ships no session or chat reader (Auth/DiscoveryApp.swift left out): an incognito app's
+  if grep -q -E 'KeychainSignIn' <<<"$syms"; then echo "FAIL nokeychain: ClaudeAuth still has KeychainSignIn"; bad=1; fi
+  # the same build ships no session or chat reader (Auth/DiscoveryApp.swift left out): an incognito app's. The functions by
+  # their mangled names (FoundAccount.Source's own case names, appSessions among them, stay in Discovery.swift)
   n=$((n + 2))
-  if nm "$out/libClaudeAuth.a" 2>/dev/null | grep -q -E 'transcriptAccounts|appSessions'; then
+  if grep -q -E 'AccountSourcesO18transcriptAccounts|AccountSourcesO11appSessions' <<<"$syms"; then
     echo "FAIL nokeychain: ClaudeAuth still has the transcript or app-session reader"; bad=1; fi
-  if strings "$out/libClaudeAuth.a" | grep -q -E 'local-agent-mode-sessions|claude-code-sessions|accountUuid"\\s'; then
-    echo "FAIL nokeychain: ClaudeAuth still holds the session folders' or transcripts' names"; bad=1; fi
+  if grep -q -E 'local-agent-mode-sessions|claude-code-sessions' <<<"$text"; then
+    echo "FAIL nokeychain: ClaudeAuth still holds the session folders' names"; bad=1; fi
   [[ $bad -eq 0 ]] && echo "nokeychain: $n passed, 0 failed (ClaudeAuth builds without Auth/Keychain.swift and Auth/DiscoveryApp.swift: no Keychain, no session or chat reader)"
   return $bad
 }
