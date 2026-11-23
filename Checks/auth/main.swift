@@ -85,8 +85,13 @@ do {
     let other = AuthFolder(path: "~/.claude-work", home: home).environment(base)
     check(AuthFolder.providerVariables.allSatisfy { other[$0] == nil }, "no key, token or other provider is passed on")
     check(other["CLAUDE_CONFIG_DIR"] == home + "/.claude-work", "another folder: CLAUDE_CONFIG_DIR is that folder, never the shell's")
-    check(other["KEEP"] == "1" && other["HOME"] == home, "the rest stays")
+    check(other["KEEP"] == nil && other["HOME"] == home, "an allow-list: HOME stays, anything not on it (KEEP) doesn't")
     check(other["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/bin", "the install places first on PATH: \(other["PATH"] ?? "")")
+    check(AuthFolder(path: "~/.claude-work", home: home).environment(base, claude: "/opt/sample/bin/claude")["PATH"]
+            == "/opt/sample/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/bin"
+          && other["DISABLE_TELEMETRY"] == "1" && other["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == nil
+          && AuthFolder(path: "~/.claude-work", home: home).environment(base, traceless: true)["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1",
+          "claude's own folder first when given; non-essential traffic off; traceless only when asked")
     let def = AuthFolder(path: "~/.claude", home: home).environment(base)
     check(def["CLAUDE_CONFIG_DIR"] == nil, "the default folder: CLAUDE_CONFIG_DIR unset (set, Claude Code takes it for a custom folder)")
     check(AuthFolder(path: "~/.claude", home: home).environment([:])["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
@@ -523,7 +528,7 @@ do {
     // renew
     check(auth.renew(claude: claude) == .done && ran.count == 1, "renew runs once")
     check(ran.last == ClaudeCommand(executable: claude, arguments: ["-p", "Reply with OK.", "--model", "haiku", "--no-session-persistence"],
-                                    environment: folder.environment(tools.environment()), timeout: 120),
+                                    environment: folder.environment(tools.environment(), claude: claude), timeout: 120),
           "renew: the one-line prompt on Haiku, nothing saved, on this folder only, 2 minutes at most")
     check(ran.last?.environment["CLAUDE_CONFIG_DIR"] == folder.path && ran.last?.environment["ANTHROPIC_API_KEY"] == nil, "renew's environment")
     let ann = SignedInAccount(accountID: uuid(1), organizationID: uuid(51), origin: .record)
