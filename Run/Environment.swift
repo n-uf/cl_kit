@@ -13,7 +13,10 @@ public enum ClaudeEnvironment {
     /// What is taken from the caller's environment, by name (and every `LC_*`).
     public static let passed: Set<String> = ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "TERM", "__CF_USER_TEXT_ENCODING",
                                              "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
-                                             "ALL_PROXY", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]
+                                             "ALL_PROXY", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+                                             // a company's certificates and client certificate (mTLS, a TLS-inspecting proxy)
+                                             "CLAUDE_CODE_CERT_STORE", "CLAUDE_CODE_CLIENT_CERT", "CLAUDE_CODE_CLIENT_KEY",
+                                             "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE"]
 
     /// Claude Code's non-essential traffic off: telemetry, error reports, update checks.
     public static let quiet = ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1"]
@@ -32,13 +35,18 @@ public enum ClaudeEnvironment {
     public static func make(_ base: [String: String], claude: String? = nil, configDir: String?, traceless: Bool = false) -> [String: String] {
         var env = base.filter { passed.contains($0.key) || $0.key.hasPrefix("LC_") }
         if let configDir { env["CLAUDE_CONFIG_DIR"] = configDir }
-        let own = claude.map { ($0 as NSString).deletingLastPathComponent }.flatMap { $0.isEmpty ? nil : $0 }
-        // never an empty entry (the current folder)
-        let rest = (base["PATH"] ?? "").split(separator: ":").map(String.init)
-        env["PATH"] = ([own].compactMap { $0 } + installPlaces + rest).joined(separator: ":")
+        // claude's own folder (never "/" for a claude at the root, never a relative one)
+        let own = claude.map { ($0 as NSString).deletingLastPathComponent }.flatMap { $0.hasPrefix("/") && $0 != "/" ? $0 : nil }
+        env["PATH"] = path([own].compactMap { $0 } + installPlaces, then: base["PATH"])
         for (k, v) in quiet { env[k] = v }
         if traceless { for (k, v) in Self.traceless { env[k] = v } }
         return env
+    }
+
+    /// `first`, then the caller's PATH, as one PATH: absolute entries only (never an empty one, the current folder, nor a
+    /// relative one), in order.
+    public static func path(_ first: [String], then rest: String?) -> String {
+        (first + (rest ?? "").split(separator: ":").map(String.init)).filter { $0.hasPrefix("/") }.joined(separator: ":")
     }
 }
 
