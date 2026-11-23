@@ -281,7 +281,7 @@ addView.frame.size = NSSize(width: max(addView.naturalWidth, 320), height: addVi
 check("add: its words alone in the title and VoiceOver, never 'hidden address'",
       addItem.title == "Add an account…" && addView.accessibilityLabel() == "Add an account…", addItem.title)
 check("add: no address and no room; the plus in the leading column; drawn",
-      addView.room == 0 && addView.drawnAddress == "" && addView.row.marker == .plus && addView.row.addressLess && inked(addView))
+      addView.room == 0 && addView.drawnAddress == "" && addView.row.marker == .plus && addView.row.isAdd && inked(addView))
 check("add: the same metrics as an account row (one line)", addView.height == view(short).height)
 addView.fire()
 check("add: Return picks it, as the others", adds == 1 && addItem.action == #selector(MenuAccountRowView.fire) && addItem.isEnabled)
@@ -307,16 +307,42 @@ let waitItem = MenuAccountRowView.item(MenuAccountRow(address: short, inUse: fal
 check("waiting: acts as `enabled` says (here not)", waitItem.action == nil && !waitItem.isEnabled)
 
 let k = view(short)
-k.lit(true)
+k.standInMenuLit(true)
 check("keyboard: lit by the arrow keys (the stand-in), the pointer elsewhere: lit, the stand-in drawn", k.lit && !k.sharp && k.drawnAddress == AddressText.standIn)
 k.pointer(true)
 check("keyboard: the pointer on the lit row: sharp", k.sharp)
-k.lit(false); k.pointer(false)
+k.standInMenuLit(false); k.pointer(false)
 check("keyboard: arrowed away, the pointer gone: nothing sharp", !k.lit && !k.sharp)
-k.lit(true)
+k.standInMenuLit(true)
 check("keyboard: arrowed back: lit, still the stand-in (nothing remembered)", k.lit && !k.sharp && k.drawnAddress == AddressText.standIn)
-k.lit(nil)
+k.standInMenuLit(nil)
 check("keyboard: nil gives the menu's own highlight back", k.menuLit == nil && !k.lit)
+k.standInMenuLit(true); k.forgetPointer()
+check("keyboard: the menu's end (forgetPointer) drops the keyboard's stand-in too", k.menuLit == nil && k.pointerStandIn == nil)
+
+// ── review of #17: the waiting word, the add row's note and flag, a waiting row that still acts ──
+var waitPicks = 0
+let waitOn = MenuAccountRowView.item(MenuAccountRow(address: short, inUse: false, waiting: true), blur: true) { waitPicks += 1 }
+(waitOn.view as? MenuAccountRowView)?.fire()
+check("waiting: enabled, it still acts, and VoiceOver says 'waiting'",
+      waitPicks == 1 && waitOn.isEnabled && waitOn.view?.accessibilityValue() as? String == "waiting")
+let waitInUse = MenuAccountRowView.item(MenuAccountRow(address: short, inUse: true, waiting: true), blur: true) {}
+check("waiting: the account in use says 'selected, waiting'; the app's word for it", waitInUse.view?.accessibilityValue() as? String == "selected, waiting"
+      && (MenuAccountRowView.item(MenuAccountRow(address: short, inUse: false, waiting: true),
+                                  words: MenuRowWords(fiveHour: "5h", week: "Week", full: "full", waiting: "busy"), blur: true) {})
+         .view?.accessibilityValue() as? String == "busy")
+check("waiting: a plain row says nothing extra", view(short).accessibilityValue() == nil)
+let addWait = MenuAccountRowView.item(.add("Add an account…", note: "Signing in…", enabled: false, waiting: true), blur: true) {}
+let addWaitView = addWait.view as! MenuAccountRowView
+check("add: waiting with a note: the second line, 'waiting' to VoiceOver, still no address and no action",
+      addWaitView.secondLine == "Signing in…" && addWaitView.accessibilityValue() as? String == "waiting"
+      && addWaitView.accessibilityLabel() == "Add an account…, Signing in…" && addWaitView.room == 0 && addWait.action == nil
+      && addWaitView.height == view(short, note: "x").height, addWaitView.accessibilityLabel() ?? "")
+let emptyAccount = MenuAccountRowView(row: MenuAccountRow(address: "", inUse: false), pick: {})
+emptyAccount.blur = true
+check("add: only `add` makes an address-less row: an account row with an empty address still draws and says the stand-in",
+      !emptyAccount.row.isAdd && emptyAccount.drawnAddress == AddressText.standIn && emptyAccount.title == "hidden address"
+      && emptyAccount.room == s13.room)
 
 print("menurows: \(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)

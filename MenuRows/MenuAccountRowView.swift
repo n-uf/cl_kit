@@ -159,7 +159,7 @@ public final class MenuAccountRowView: NSView {
     /// The item's title: the prefix, the address in its sentence form ("hidden address" while hidden) and the tag; a row
     /// with no address (`MenuAccountRow.add`) only its words.
     public var title: String {
-        safe(row.prefix) + (row.addressLess ? "" : AddressText.sentence(address: row.address, blur: blurred)) + safe(row.tag)
+        safe(row.prefix) + (row.isAdd ? "" : AddressText.sentence(address: row.address, blur: blurred)) + safe(row.tag)
     }
     /// The second line's words: the usage line's, else the app's note, else nil.
     public var secondLine: String? { row.usage?.words ?? row.note.map(safe) }
@@ -169,7 +169,11 @@ public final class MenuAccountRowView: NSView {
     /// line. Nothing of a hidden address, whatever the pointer does.
     public override func accessibilityLabel() -> String? { [title, secondLine].compactMap { $0 }.joined(separator: ", ") }
     /// The account in use says so, as a native ticked item does.
-    public override func accessibilityValue() -> Any? { row.inUse ? words.selected : nil }
+    /// A waiting row says so ("waiting"), with "selected" first when it is the account in use.
+    public override func accessibilityValue() -> Any? {
+        let said = [row.inUse ? words.selected : nil, row.waiting ? words.waiting : nil].compactMap { $0 }
+        return said.isEmpty ? nil : said.joined(separator: ", ")
+    }
     /// What a press does, in the app's word ("Switch…").
     public override func accessibilityHelp() -> String? { hint }
 
@@ -186,7 +190,7 @@ public final class MenuAccountRowView: NSView {
 
     /// The room of the address: the stand-in's at the row's font while hidden, whatever the address (its own width while
     /// shown); none for a row with no address.
-    public var room: CGFloat { row.addressLess ? 0 : ink.room(for: row.address, blur: blurred) }
+    public var room: CGFloat { row.isAdd ? 0 : ink.room(for: row.address, blur: blurred) }
     /// Where the address starts: after the prefix (in the address's font).
     public var addressX: CGFloat { columns.addressX + Self.w(safe(row.prefix), addressFont) }
     /// One line, or two with a usage line or a note.
@@ -205,12 +209,13 @@ public final class MenuAccountRowView: NSView {
 
     /// Lit by the menu (the pointer or the arrow keys are on it, or drawn so for a picture); a disabled row never is.
     public var lit: Bool { row.enabled && (highlighted || (menuLit ?? (enclosingMenuItem?.isHighlighted == true))) }
-    /// A check's stand-in for the menu's highlight (nil: the item's own): lit as by the arrow keys. Set with `lit(_:)`.
+    /// A check's stand-in for the menu's highlight (nil: the item's own): lit as by the arrow keys. Set with
+    /// `standInMenuLit(_:)`.
     public internal(set) var menuLit: Bool? { didSet { needsDisplay = true } }
     /// A check stands in for the menu's highlight, as the arrow keys give it (true: lit, false: not, nil: the item's own
     /// again), so an app can check that arrowing away and back reveals nothing. Dropped, like the pointer's stand-in, when
     /// the row leaves its window or its menu closes.
-    public func lit(_ on: Bool?) { menuLit = on }
+    public func standInMenuLit(_ on: Bool?) { menuLit = on }
     /// The pointer is on the row: asked of the window each time (never remembered, so a menu that closed or scrolled under
     /// the pointer leaves no reveal behind), or a check's stand-in.
     public var pointerOn: Bool {
@@ -223,7 +228,7 @@ public final class MenuAccountRowView: NSView {
     /// The address is drawn readable: lit with the pointer on it (or lit for a picture), or addresses aren't hidden.
     public var sharp: Bool { (lit && (highlighted || pointerOn)) || !blurred }
     /// The address text drawn now: its own while sharp, else the stand-in (never any part of the address).
-    public var drawnAddress: String { row.addressLess ? "" : AddressText.drawn(address: row.address, revealed: sharp, blur: true) }
+    public var drawnAddress: String { row.isAdd ? "" : AddressText.drawn(address: row.address, revealed: sharp, blur: true) }
 
     /// A check stands in for the mouse (true: on the row, false: off it, nil: the real pointer again).
     public func pointer(_ on: Bool?) { pointerStandIn = on; needsDisplay = true }
@@ -301,7 +306,8 @@ public final class MenuAccountRowView: NSView {
         // the leading column: the tick of the account in use just before the address, else the row's mark
         if row.inUse {
             let tw = Self.w(words.tick, Self.tickFont)
-            put(words.tick, Self.tickFont, text, x: max(1, columns.addressX - tw - Self.tickGap), y: mid - h / 2)
+            // centred on its own font's line, whatever the address's size
+            put(words.tick, Self.tickFont, text, x: max(1, columns.addressX - tw - Self.tickGap), y: mid - Self.textH(Self.tickFont) / 2)
         } else if row.marker == .hollowLamp {
             let d = Self.lampSize, r = NSRect(x: columns.markerX, y: mid - d / 2, width: d, height: d).insetBy(dx: 0.5, dy: 0.5)
             text.setStroke()
@@ -312,7 +318,7 @@ public final class MenuAccountRowView: NSView {
         // the prefix, the address (sharp, or the stand-in blurred), the tag after its room, the hint at the right while lit
         let prefix = safe(row.prefix)
         if !prefix.isEmpty { put(prefix, addressFont, text, x: columns.addressX, y: mid - h / 2) }
-        if !row.addressLess { ink.draw(address: row.address, readable: sharp, color: text, x: addressX, midY: mid, blur: blurred) }
+        if !row.isAdd { ink.draw(address: row.address, readable: sharp, color: text, x: addressX, midY: mid, blur: blurred) }
         let tag = safe(row.tag)
         if !tag.isEmpty { put(tag, Self.smallFont, quiet, x: addressX + room, y: mid - hs / 2) }
         if on, let hint {
