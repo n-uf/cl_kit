@@ -17,13 +17,13 @@ extension AccountSources {
     /// desktop app's data folder, with when a session was last written under each.
     /// - claude-code-sessions/<account>/<org>/: its local_<UUID>.json entries' names and dates only, none opened;
     /// - local-agent-mode-sessions/<account>/<org>/: its records' dates, and the address the first of them that names one
-    ///   says: at most `records` opened, each at most `max` bytes, and none for an account in `knownAddresses` (accounts whose
-    ///   address the caller knows already: their records are never opened).
+    ///   says: at most `records` opened, each at most `max` bytes, and none for an account in `knownAccounts` (the ids, any
+    ///   case, of accounts whose address the caller knows already: their records are never opened).
     /// Each folder on the way a real folder, the session root too, and each file a real file: a link is never followed. Both
     /// names UUID-shaped. `limit`: at most that many names looked at in each folder.
-    public static func appSessions(dataDir: String, records: Int = 50, max: Int = agentRecordMax, knownAddresses: Set<String> = [],
+    public static func appSessions(dataDir: String, records: Int = 50, max: Int = agentRecordMax, knownAccounts: Set<String> = [],
                                    limit: Int? = nil) -> [FoundAccount] {
-        let known = Set(knownAddresses.map(AccountID.normal))
+        let known = Set(knownAccounts.map(AccountID.normal))
         var out: [FoundAccount] = []
         for (kind, agent) in [("claude-code-sessions", false), ("local-agent-mode-sessions", true)] {
             let root = (dataDir as NSString).appendingPathComponent(kind)
