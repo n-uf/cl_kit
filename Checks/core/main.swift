@@ -579,6 +579,17 @@ do {
           && display(read(40, five: 12, age: 2 * 3600), ages: quick, refusal: nil).hasFiveHour
           && display(read(40, five: 12, age: 2 * 3600), ages: quick, refusal: nil).usage == nil,
           "hasFiveHour from the raw read: week-only hides the row; a 5-hour number the filter drops keeps it")
+    // past the hour: a dateless full 5-hour never hides the dated full week; and only that limit shows, no credits
+    let tomorrow = now.addingTimeInterval(86400)
+    var mixed = Usage(fiveHour: 100, fiveHourResets: nil, weekly: 100, weeklyResets: tomorrow, fetchedAt: now.addingTimeInterval(-2 * 3600), source: "test")
+    mixed.credits = Credits(enabled: true, used: 1, cap: nil, currency: "USD", out: false)
+    let mixedShown = display(mixed, ages: quick, refusal: nil)
+    check(mixedShown.heldBack == HeldBack(window: .week, resets: tomorrow, refused: false) && mixedShown.usage?.weekly == 100
+          && mixedShown.usage?.fiveHour == nil && mixedShown.usage?.credits == nil,
+          "a dateless full 5-hour is left out: the dated full week holds it back and is all that shows, without the credits")
+    check(display(mixed, ages: quick, refusal: nil).hasFiveHour && display(Usage(fiveHour: 100, fiveHourResets: nil, weekly: 40, weeklyResets: tomorrow,
+          fetchedAt: now.addingTimeInterval(-2 * 3600), source: "test"), ages: quick, refusal: nil).heldBack == nil,
+          "...and a dateless full alone past the hour holds nothing back there")
     // a status record shown past the hour (dated fulls kept): only its dated full week, nothing else
     var rec = StatusRecord(state: "ok")
     rec.fiveHour = 30; rec.fiveHourResets = ahead; rec.weekly = 100; rec.weeklyResets = now.addingTimeInterval(86400)
