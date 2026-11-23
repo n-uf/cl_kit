@@ -397,6 +397,10 @@ do {
     let env = ClaudeEnvironment.make(["HOME": home, "PATH": "/usr/bin:/bin"], claude: answering, configDir: home + "/.claude-work")
     let a = ClaudeAsk.ask(claude: answering, environment: env, folder: work, usage: true, timeout: 10)
     check(a.end == .answered && a.account == ["email": "wu@example.com", "organization": "Example Team"], "initialize's account: \(a)")
+    check(a.initialize == ClaudeAsk.Initialize(account: ["email": "wu@example.com", "organization": "Example Team"], models: nil),
+          "initialize as it came: an account without a model list")
+    check(a.stop == .inputClosed && a.exitStatus == 0 && !a.signaled,
+          "the stop: its input closed, it ended by itself with status 0 (no signal needed)")
     check(a.limits?.available == true && a.limits?.fiveHour?.used == 100 && a.limits?.fiveHour?.locked == false
           && a.limits?.fiveHour?.resets == ClaudeAsk.isoDate("2026-11-12T18:00:00Z")
           && a.limits?.week == ClaudeAsk.Window(used: 68, resets: ClaudeAsk.isoDate("2026-11-14T09:00:00Z"), locked: true),
@@ -416,6 +420,8 @@ do {
     var t = Date()
     let s = ClaudeAsk.ask(claude: silent, environment: env, folder: work, usage: true, timeout: 1, grace: 0.5)
     check(s.end == .timedOut && s.account == nil && Date().timeIntervalSince(t) < 4, "nothing said: timed out at its limit")
+    check(s.stop == .terminated && s.signaled && s.exitStatus == SIGTERM && s.initialize == nil,
+          "...its input closed didn't end it (it sleeps on): SIGTERM did, said so")
     let spid = Int32((try? String(contentsOfFile: pidFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? -1
     var spidGone = false
     let until = Date().addingTimeInterval(3)
@@ -423,8 +429,15 @@ do {
     check(spid > 0 && spidGone, "...and the stand-in was stopped (\(spid))")
     // ends before answering; an error to get_usage; an initialize answer naming nobody
     t = Date()
-    check(ClaudeAsk.ask(claude: standIn("claude-quits", "exit 3\n"), environment: env, folder: work, usage: true, timeout: 10).end == .exited
-          && Date().timeIntervalSince(t) < 5, "it ends before answering: exited, at once")
+    let quits = ClaudeAsk.ask(claude: standIn("claude-quits", "exit 3\n"), environment: env, folder: work, usage: true, timeout: 10)
+    check(quits.end == .exited && quits.stop == .byItself && quits.exitStatus == 3 && !quits.signaled
+          && Date().timeIntervalSince(t) < 5, "it ends before answering: exited by itself, at once, its status 3")
+    // one that ignores SIGTERM (an ignored signal stays ignored across exec): killed after the second grace
+    t = Date()
+    let stubborn = ClaudeAsk.ask(claude: standIn("claude-stubborn", "trap '' TERM\nwhile IFS= read -r line; do :; done\nexec sleep 30\n"),
+                                 environment: env, folder: work, usage: true, timeout: 1, grace: 0.5)
+    check(stubborn.end == .timedOut && stubborn.stop == .killed && stubborn.signaled && stubborn.exitStatus == SIGKILL
+          && Date().timeIntervalSince(t) < 6, "one that ignores SIGTERM: killed (SIGKILL), said so")
     let refusing = standIn("claude-refuses", """
         while IFS= read -r line; do
           case "$line" in
@@ -436,6 +449,16 @@ do {
     let r = ClaudeAsk.ask(claude: refusing, environment: env, folder: work, usage: true, timeout: 10)
     check(r.end == .answered && r.account == [:] && r.limits == nil && r.usageError == "not allowed",
           "a key or token names nobody (an empty account); get_usage said no: answered, its error kept")
+    check(r.initialize == ClaudeAsk.Initialize(account: [:], models: []) && r.stop == .inputClosed,
+          "initialize as it came: an empty account and an empty model list")
+    check(ClaudeAsk.initializeAnswer(Data(#"{"type":"control_response","response":{"subtype":"success","request_id":"ask-1","response":{"models":[{"value":"haiku","displayName":"Haiku"},{"value":"opus"},7]}}}"#.utf8))
+            == ClaudeAsk.Initialize(account: nil, models: ["haiku", "opus"])
+          && ClaudeAsk.initializeAnswer(Data(#"{"type":"control_response","response":{"subtype":"success","request_id":"ask-1","response":{}}}"#.utf8)) == nil
+          && ClaudeAsk.initializeAnswer(Data(#"{"type":"control_response","response":{"subtype":"error","request_id":"ask-1","error":"x"}}"#.utf8)) == nil
+          && ClaudeAsk.initializeAnswer(Data(#"{"type":"control_response","response":{"subtype":"success","request_id":"ask-2","response":{"account":{}}}}"#.utf8)) == nil,
+          "initializeAnswer: models without an account (their values); nothing for an empty answer, an error, or another request")
+    check(ClaudeAsk.ask(claude: home + "/no-such-claude", environment: env, folder: work, usage: true).stop == nil,
+          "couldn't start: no stop to say")
     check(ClaudeAsk.ask(claude: home + "/no-such-claude", environment: env, folder: work, usage: true).end == .couldNotStart
           && ClaudeAsk.ask(claude: answering, environment: env, folder: home + "/no-such-folder", usage: true).end == .couldNotStart
           && !fm.fileExists(atPath: home + "/no-such-folder"), "no claude, or no folder (never made): couldn't start")
