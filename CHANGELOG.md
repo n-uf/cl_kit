@@ -3,6 +3,28 @@
 All notable changes to cl_kit are listed here, newest first. Calendar versions, `YY.M.R`, tagged `vYY.M.R` (see README ▸
 Versions and release).
 
+## Unreleased
+
+ProfileCore takes the usage rules cl_quick still copies (stage 5). No source breaks: every addition is new API or a new
+parameter with a default.
+
+- **The week-only rule.** `Usage.hasFiveHour(fiveHour:week:refusedOn:heldBack:)`, cl_quick's exact form, and
+  `Usage.hasFiveHour(refusal:now:)` from the raw numbers (never `current()`'s; a plan without the window, `noFiveHour`, never
+  shows it); `ProfileDisplay.hasFiveHour`, from the raw read.
+- **What holds a profile back.** `AtLimit.heldBack` and `HeldBack`: the full limit (`blocker`, unchanged), else a standing
+  refusal: the window the numbers leave (only one known: the other), `any` when both are known, the refusal's own window
+  only when neither is. `ProfileDisplay.heldBack`, from the raw read and the refusal `make` is given.
+- **Behaviour change, for callers that keep dated fulls (`datedFullStays`, cl_quick's ages) only:**
+  - past `hiddenAfter`, `Headline.Answer.limit`, `ProfileDisplay.make` and `StatusRecord.shown` keep a full limit whose known
+    reset is ahead, grey, until that reset (`Answer.datedFullOnly`): `ProfileDisplay.usage` is then non-nil (that limit only)
+    and `none` nil; `ProfileDisplay.heldBack` keeps a refusal with a known end in the same way;
+  - a dateless 100% read between `freshFor` and `hiddenAfter` shows as a grey, last-known 100% with no reset; it never acts
+    and never sets `full`.
+  Callers without dated fulls (cl_audit) are unchanged.
+- **Not taken in this stage** (the reader's rules, where cl_quick still differs): a rate-limit event's `used × 100` clamped
+  to 0…100; `get_usage`'s `locked_reason` as a refusal; the refusal lift (cl_quick lifts only when every window given is
+  below 100, the kit when the refusing window has room).
+
 ## 26.11.4
 
 The account rule, one for both apps (stage 1 of the platform concept, `docs/design/platform-concept.html`; no app changes
