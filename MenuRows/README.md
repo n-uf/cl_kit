@@ -18,12 +18,14 @@ with `kit_menurows_link OUT` placed before the other two's flags). `Checks/run.s
 
 - **The address.** Always whole. While addresses are hidden (the app's setting, `AddressPrivacy.shared.blur`) it is
   AddressPrivacy's one fixed stand-in, blurred, the same for every account, and sharp only while the menu lights the row
-  **and** the pointer is on it, as the window says at that moment: a keyboard highlight or type-ahead lights the row but
-  never reveals the address, and nothing is remembered once the menu closes or scrolls. Its room is the stand-in's whatever
-  the address, so nothing moves on a reveal and an address's length is never in the tag's position.
+  **and** the pointer is on it, as the window says at that moment: only the pointer on the row reveals it (resting or
+  moving); a keyboard highlight or type-ahead alone lights the row but never does, and nothing is remembered once the
+  menu closes or scrolls. Its room is the stand-in's whatever the address, so nothing moves on a reveal and an address's
+  length is never in the tag's position.
 - **Words.** `prefix` before the address and `tag` after it (smaller), the `hint` at the right while lit, a `note` under
   it when there's no usage line: all the app's words. The app's rule is to put no address in them; while addresses are
-  hidden, any word in them that is an address or an account id is drawn and spoken as `hidden address` anyway.
+  hidden, any word in them that is an address or an account id is drawn and spoken as `hidden address` anyway (a date such
+  as 2026-11-20 is not an id; words split at any white space, the spaces kept).
 - **Title and VoiceOver.** The item's title (type-ahead) and VoiceOver's label are the sentence form: `hidden address` in
   the address's place, with the prefix and tag, then the second line. The hint is VoiceOver's help. The account in use is
   the item's `.on` state, the tick before the address (in the margin by default), and "selected" to VoiceOver

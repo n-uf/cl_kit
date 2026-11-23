@@ -11,9 +11,9 @@
 //
 // - Hidden (the setting on): the address is AddressPrivacy's one fixed stand-in, blurred, the same for every account, and
 //   sharp only while the menu lights the row AND the pointer is on it, as the window says now (never a remembered
-//   flag: a menu that closed or scrolled leaves nothing behind). A keyboard highlight or type-ahead lights the row but
-//   never reveals the address. Its room is the stand-in's width whatever the address, so nothing moves on a reveal and an
-//   address's length is never in the position of the words after it.
+//   flag: a menu that closed or scrolled leaves nothing behind). Only the pointer on the row reveals it, resting or moving;
+//   a keyboard highlight or type-ahead alone lights the row but never does. Its room is the stand-in's width whatever the
+//   address, so nothing moves on a reveal and an address's length is never in the position of the words after it.
 // - Its title (the menu's type-ahead) and its VoiceOver label hold the sentence form: "hidden address" in the address's
 //   place, the same for every account; any of the app's words that names an address is "hidden address" too.
 // - Compact: one line (two with the usage line), a native item's highlight, no stripe on any edge.
@@ -113,16 +113,35 @@ public final class MenuAccountRowView: NSView {
     /// Whether the address is hidden now: the override, or the app's setting.
     public var blurred: Bool { blur ?? AddressPrivacy.shared.blur }
     /// The app's words as the row draws and speaks them: as given, but while addresses are hidden any word in them that is
-    /// an address or an account id (AddressText.needsHiding) becomes "hidden address" ("Switch to hidden address"). The
-    /// app's rule is to put no address in them; this only makes sure.
+    /// an address or an account id (`namesAccount`) becomes "hidden address" ("Switch to hidden address"). Words are split
+    /// at any white space (a no-break space too), and the spaces between them are kept as they were. The app's rule is to
+    /// put no address in them; this only makes sure.
     public func safe(_ s: String) -> String {
         guard blurred else { return s }
         let edges = CharacterSet(charactersIn: "()[]{}<>,;:!?\"'«»“”‘’…·")
-        return s.split(separator: " ", omittingEmptySubsequences: false).map { word -> String in
-            let w = String(word), core = w.trimmingCharacters(in: edges)
-            guard !core.isEmpty, AddressText.needsHiding(core), let r = w.range(of: core) else { return w }
+        func hide(_ w: String) -> String {
+            let core = w.trimmingCharacters(in: edges)
+            guard !core.isEmpty, Self.namesAccount(core), let r = w.range(of: core) else { return w }
             return w.replacingCharacters(in: r, with: AddressText.hidden)
-        }.joined(separator: " ")
+        }
+        var out = "", word = ""
+        for ch in s {
+            if ch.unicodeScalars.allSatisfy({ CharacterSet.whitespacesAndNewlines.contains($0) }) {
+                out += hide(word); out.append(ch); word = ""
+            } else {
+                word.append(ch)
+            }
+        }
+        return out + hide(word)
+    }
+
+    /// Whether one of the app's words names an account: an address, or an account id (AddressText.needsHiding), except a
+    /// date-shaped word ("2026-11-20"): digits split by dashes count as an id only in a UUID's shape (8-4-4-4-12). A word
+    /// with a hex letter, or a bare run of 8 or more digits, still counts, so an id's first characters never show.
+    static func namesAccount(_ word: String) -> Bool {
+        guard AddressText.needsHiding(word) else { return false }
+        if word.contains("@") || word.contains(where: { $0.isLetter }) || !word.contains("-") { return true }
+        return word.split(separator: "-", omittingEmptySubsequences: false).map(\.count) == [8, 4, 4, 4, 12]
     }
     /// The item's title: the prefix, the address in its sentence form ("hidden address" while hidden) and the tag.
     public var title: String { safe(row.prefix) + AddressText.sentence(address: row.address, blur: blurred) + safe(row.tag) }
