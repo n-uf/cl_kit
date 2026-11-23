@@ -77,7 +77,7 @@ public struct FoundAccounts: Equatable {
     public var organizationTypes: [String: String] = [:]      // organisation id → type
     public var seats: [SeatID] = []                           // every account/organisation pair, in the order seen
     public var lastUsed: [SeatID: Date] = [:]
-    /// Accounts seen by their id alone (no organisation named: a transcript's).
+    /// Accounts seen by their id alone (no organisation named: a transcript's) and by no seat.
     public var idsAlone: [String] = []
 
     public init() {}
@@ -95,7 +95,8 @@ public struct FoundAccounts: Equatable {
                 if organizationTypes[s.organization] == nil, let t = f.organizationType, !t.isEmpty { organizationTypes[s.organization] = t }
                 if !seats.contains(s) { seats.append(s) }
                 if let d = f.lastUsed, d > (lastUsed[s] ?? .distantPast) { lastUsed[s] = d }
-            } else if !idsAlone.contains(a) {
+                idsAlone.removeAll { $0 == a }                    // now known by a seat
+            } else if !idsAlone.contains(a), !seats.contains(where: { $0.account == a }) {
                 idsAlone.append(a)
             }
         }
